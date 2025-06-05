@@ -1,0 +1,26 @@
+# .envファイル（環境変数）
+.env
+.env.*
+
+# Python仮想環境
+venv/
+
+# Pythonキャッシュ
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 依存パッケージ
+node_modules/
+
+# テスト関連
+coverage/
+
+# ビルド成果物
+dist/
+build/
+
+# 一時ファイル・ログ
+.DS_Store
+*.log

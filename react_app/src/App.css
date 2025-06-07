@@ -14,15 +14,18 @@
 }
 
 .App-header {
-  background-color: #282c34;
+  background: rgba(245,247,255,0.96);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   justify-content: flex-start;
-  font-size: calc(10px + 2vmin);
+  font-size: 1rem;
   color: #222;
-  padding-top: 40px;
+  padding-top: 24px;
+  box-shadow: 0 2px 16px 0 rgba(60,80,180,0.08);
+  max-width: 600px;
+  margin: 0 auto;
 }
 
 .App-link {
@@ -39,28 +42,254 @@
 }
 
 body {
-  background: #f5f6fa;
+  background: linear-gradient(135deg, #e5e7eb 0%, #c7d2fe 100%);
+  font-size: 15px;
 }
 
 textarea {
   border-radius: 8px;
-  border: 1px solid #ccc;
-  padding: 12px;
-  font-size: 16px;
+  border: 1px solid #bfcfff;
+  padding: 10px;
+  font-size: 15px;
   resize: vertical;
+  background: #e8eaf6;
+  color: #222;
+  box-shadow: 0 1px 4px 0 rgba(60,80,180,0.04);
 }
 
 button {
-  background: #007bff;
+  background: linear-gradient(90deg, #6366f1 0%, #60a5fa 100%);
   color: #fff;
   border: none;
   border-radius: 6px;
-  padding: 10px 24px;
+  padding: 8px 18px;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background 0.2s, box-shadow 0.2s;
+  font-weight: bold;
+  font-size: 15px;
+  box-shadow: 0 2px 8px 0 rgba(60,80,180,0.08);
 }
 
 button:disabled {
-  background: #aaa;
+  background: #bfcfff;
   cursor: not-allowed;
+}
+
+/* カード風の履歴・回答表示 */
+.App .App-header > div[style*='background: #fff'] {
+  background: #e8eaf6 !important;
+  border: 1px solid #bfcfff;
+  box-shadow: 0 2px 8px 0 rgba(60,80,180,0.06);
+  text-align: left;
+}
+
+.App .App-header h1 {
+  color: #4f46e5;
+  font-weight: 800;
+  letter-spacing: 1px;
+  margin-bottom: 12px;
+  font-size: 1.5rem;
+  text-align: left;
+}
+
+.App .App-header h2 {
+  color: #6366f1;
+  font-weight: 700;
+  font-size: 1.1rem;
+  text-align: left;
+}
+
+/* 質問履歴カード */
+.history-list {
+  background: #e7f0ff;
+  border-radius: 12px;
+  box-shadow: 0 0 0 2px #c7d7ff;
+  margin-bottom: 18px;
+  padding: 18px 24px 10px 24px;
+  cursor: pointer;
+  transition: box-shadow 0.2s, background 0.2s;
+  width: 100%;
+  max-width: 420px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.history-list:hover {
+  box-shadow: 0 2px 12px #bfcfff;
+  background: #f3f7ff;
+}
+
+.answer-detail {
+  background: #fff;
+  border-radius: 6px;
+  margin: 8px 0 0 0;
+  padding: 12px 14px;
+  border: 1px solid #bfcfff;
+  box-shadow: 0 1px 4px 0 rgba(60,80,180,0.04);
+  margin-top: 12px;
+  width: 100%;
+}
+
+/* followupチャット用の吹き出し・枠デザイン */
+.answer-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 24px;
+}
+
+.answer-box {
+  background: #fff;
+  color: #222;
+  padding: 16px;
+  border-radius: 8px;
+  max-width: 480px;
+  width: 100%;
+  text-align: left;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.suggest-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.followup-form {
+  margin-top: 18px;
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  justify-content: center;
+}
+
+.followup-form input {
+  flex: 1;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  font-size: 15px;
+  min-width: 0;
+}
+
+.followup-form button {
+  padding: 8px 16px;
+}
+
+/* followupチャットの吹き出し */
+.followup-bubble-user {
+  background: #e0e7ff;
+  border-radius: 12px;
+  padding: 10px 16px;
+  max-width: 80%;
+  align-self: flex-end;
+  font-weight: bold;
+  color: #4f46e5;
+  margin-bottom: 2px;
+  box-shadow: 0 1px 4px #dbeafe;
+}
+
+.followup-bubble-ai {
+  background: #f3f7ff;
+  border-radius: 12px;
+  padding: 10px 16px;
+  max-width: 80%;
+  align-self: flex-start;
+  margin-left: 8px;
+  margin-top: 2px;
+  box-shadow: 0 1px 4px #e0e7ff;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+form > * {
+  width: 100%;
+  max-width: 480px;
+}
+
+form .suggest-btns {
+  justify-content: center;
+}
+
+/* 中央揃え用の.form-centerクラス */
+.form-center-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.form-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 520px;
+}
+
+.form-center > * {
+  margin-bottom: 10px;
+  width: 100%;
+  max-width: 480px;
+  text-align: center;
+}
+
+.form-center .suggest-btns {
+  justify-content: center;
+}
+
+.form-center label,
+.form-center select,
+.form-center textarea {
+  text-align: left;
+}
+
+/* 質問履歴中央揃え */
+.center-history {
+  margin: 32px auto 0 auto;
+  max-width: 480px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.center-history .history-list {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.icon-btn {
+  background: #e0e7ff;
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  border: none;
+  margin: 0 2px;
+  height: 36px;
+  justify-content: center;
+}
+
+.icon-btn input[type="file"] {
+  display: none;
+}
+
+/* チャットバブルのテキスト折り返し・見やすさ調整 */
+.followup-bubble-user, .followup-bubble-ai {
+  word-break: break-word;
+  white-space: pre-line;
 }

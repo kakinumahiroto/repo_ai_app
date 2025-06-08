@@ -18,7 +18,34 @@ const SUGGESTIONS = [
 ];
 
 // Firestoreエミュレータ/本番のURLを環境変数から取得
-const FIRESTORE_API_URL = process.env.REACT_APP_FIRESTORE_API_URL;
+const FIRESTORE_API_URL = (() => {
+  const localUrl = process.env.REACT_APP_FIRESTORE_API_URL_LOCAL;
+  const prodUrl = process.env.REACT_APP_FIRESTORE_API_URL_PROD;
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return localUrl || prodUrl;
+  }
+  return prodUrl || localUrl;
+})();
+
+// AI APIエンドポイントの自動切り替え
+const API_URL = (() => {
+  const localUrl = process.env.REACT_APP_API_URL_LOCAL;
+  const prodUrl = process.env.REACT_APP_API_URL_PROD;
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return localUrl || prodUrl;
+  }
+  return prodUrl || localUrl;
+})();
+
+// Firestore APIのURLが未設定の場合は警告を出す
+if (!FIRESTORE_API_URL) {
+  // eslint-disable-next-line no-console
+  console.error('REACT_APP_FIRESTORE_API_URL is not set. Firestore REST API calls will fail.');
+}
+if (!API_URL) {
+  // eslint-disable-next-line no-console
+  console.error('REACT_APP_API_URL_LOCAL/PRODが未設定です。AI API呼び出しは失敗します。');
+}
 
 function App() {
   const [question, setQuestion] = useState("");
@@ -155,17 +182,20 @@ function App() {
       const lastN = 5;
       const threadForApiLimited = threadForApi.slice(-lastN);
       const res = await axios.post(
-        process.env.REACT_APP_API_URL,
+        API_URL,
         { question: q, grade, uid: user?.uid, thread: threadForApiLimited },
         { headers: { 'Content-Type': 'application/json' } }
       );
-      const chunks = res.data.answer.match(/([\s\S]{1,500})(?=\n|$)/g) || [res.data.answer];
+      const chunks = res.data.answer && typeof res.data.answer === 'string'
+        ? res.data.answer.match(/([\s\S]{1,500})(?=\n|$)/g) || [res.data.answer]
+        : [];
       setCurrentAnswerChunks(chunks);
       setCurrentChunkIndex(1);
       setAnswer(res.data.answer);
       setCurrentThread(prev => ({ ...prev, answer: res.data.answer }));
     } catch (err) {
-      setError("AI回答の取得に失敗しました");
+      setError("AI回答の取得に失敗しました: " + (err?.message || '')); 
+      console.error('handleSubmit error', err);
     } finally {
       setLoading(false);
     }
@@ -252,7 +282,7 @@ function App() {
       const lastN = 5;
       const threadForApiLimited = threadForApi.slice(-lastN);
       const res = await axios.post(
-        process.env.REACT_APP_API_URL,
+        API_URL,
         { question: q, grade, uid: user?.uid, thread: threadForApiLimited },
         { headers: { 'Content-Type': 'application/json' } }
       );
@@ -261,7 +291,8 @@ function App() {
       setCurrentChunkIndex(1);
       setCurrentThread(prev => ({ ...prev, answer: res.data.answer }));
     } catch (err) {
-      setFollowupError("AIへの再質問に失敗しました");
+      setFollowupError("AIへの再質問に失敗しました: " + (err?.message || ''));
+      console.error('handleFollowup error', err);
     } finally {
       setFollowupLoading(false);
     }
@@ -272,6 +303,10 @@ function App() {
     if (!currentThread.question || !currentThread.answer) {
       setCurrentThread({ question: '', answer: '', thread: [], grade: '小学生', createdAt: '' });
       setCurrentAnswerChunks([]); setFollowupList([]); setThreadId(null); setQuestion(""); setAnswer("");
+      return;
+    }
+    if (!FIRESTORE_API_URL) {
+      setError('Firestore APIのURLが設定されていません。環境変数REACT_APP_FIRESTORE_API_URLを確認してください。');
       return;
     }
     setLoading(true);
@@ -299,13 +334,15 @@ function App() {
               }
             },
           }
-        }
+        },
+        { headers: { 'Content-Type': 'application/json' } }
       );
       setCurrentThread({ question: '', answer: '', thread: [], grade: '小学生', createdAt: '' });
       setCurrentAnswerChunks([]); setFollowupList([]); setThreadId(null); setQuestion(""); setAnswer("");
       fetchHistory(user.uid);
     } catch (err) {
-      setError("履歴の保存に失敗しました");
+      setError("履歴の保存に失敗しました: " + (err?.message || '')); 
+      console.error('handleEndChat error', err);
     } finally {
       setLoading(false);
     }
@@ -526,6 +563,7 @@ function App() {
               )}
             </div>
           ))}
+
         </div>
       </header>
     </div>

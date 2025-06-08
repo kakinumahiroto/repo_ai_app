@@ -27,7 +27,7 @@ const FIRESTORE_API_URL = (() => {
   return prodUrl || localUrl;
 })();
 
-// AI APIエンドポイントの自動切り替え
+// AI APIエンドポイントも同様に自動切り替え
 const API_URL = (() => {
   const localUrl = process.env.REACT_APP_API_URL_LOCAL;
   const prodUrl = process.env.REACT_APP_API_URL_PROD;
@@ -37,10 +37,9 @@ const API_URL = (() => {
   return prodUrl || localUrl;
 })();
 
-// Firestore APIのURLが未設定の場合は警告を出す
 if (!FIRESTORE_API_URL) {
   // eslint-disable-next-line no-console
-  console.error('REACT_APP_FIRESTORE_API_URL is not set. Firestore REST API calls will fail.');
+  console.error('REACT_APP_FIRESTORE_API_URL_LOCAL/PRODが未設定です。Firestore REST API呼び出しは失敗します。');
 }
 if (!API_URL) {
   // eslint-disable-next-line no-console
@@ -55,7 +54,7 @@ function App() {
   const [history, setHistory] = useState([]);
   const [showPromptHelp, setShowPromptHelp] = useState(false); // 曖昧な質問時の誘導表示
   const [grade, setGrade] = useState("小学生"); // 学年選択用
-  const [expandedId, setExpandedId] = useState(null); // 履歴の展開状態
+  const [expandedId, setExpandedId] = useState(null);
   const [currentAnswerChunks, setCurrentAnswerChunks] = useState([]); // 分割表示用
   const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
   const [user, setUser] = useState(null); // ログインユーザ情報
@@ -92,14 +91,14 @@ function App() {
     }
   };
 
-  // Firestoreから履歴を取得
+  // --- Firestoreから履歴を取得 ---
   const fetchHistory = async (uid) => {
     if (!uid) return;
     try {
       const res = await axios.get(
         `${FIRESTORE_API_URL}/questionThreads`);
       if (res.data.documents && Array.isArray(res.data.documents)) {
-        setHistory(res.data.documents
+        const historyArr = res.data.documents
           .map(doc => {
             const threadArr = doc.fields.thread?.arrayValue?.values || [];
             return {
@@ -116,8 +115,9 @@ function App() {
               }))
             };
           })
-          .filter(item => item.uid === uid)
-          .sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1)));
+          .filter(item => item.uid === uid && item.question && item.thread.length > 0) // thread配列が空のものは履歴に含めない
+          .sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
+        setHistory(historyArr);
       } else {
         setHistory([]);
       }
@@ -138,8 +138,7 @@ function App() {
     createdAt: '',
   });
 
-  // 新しい質問をしたらcurrentThreadを初期化し、AI応答をセット
-  // handleSubmit: 定型質問・通常質問
+  // handleSubmit: 最初の質問のみ新規履歴を作成し、以降はthreadにまとめて保存
   const handleSubmit = async (e, suggestText) => {
     e && e.preventDefault();
     setLoading(true);
@@ -150,51 +149,74 @@ function App() {
     setFollowupList([]);
     setThreadId(null);
     const q = suggestText || question;
-    setCurrentThread(prev => {
-      let newThread = [...prev.thread];
-      let newCreatedAt = prev.createdAt || new Date().toISOString();
-      if (prev.question && prev.answer) {
-        const last = newThread[newThread.length - 1];
-        if (!last || last.question !== prev.question || last.answer !== prev.answer) {
-          newThread.push({
-            question: prev.question,
-            answer: prev.answer,
-            createdAt: prev.createdAt || newCreatedAt
-          });
-        }
-      }
-      return {
+    // もしcurrentThread.questionが空なら新規スレッド開始
+    if (!currentThread.question) {
+      setCurrentThread({
         question: q,
         answer: '',
-        thread: newThread,
+        thread: [],
         grade,
-        createdAt: newCreatedAt,
-      };
-    });
+        createdAt: new Date().toISOString(),
+      });
+      setQuestion("");
+      try {
+        if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
+        const res = await axios.post(
+          API_URL,
+          { question: q, grade, uid: user?.uid, thread: [] },
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+        const chunks = res.data.answer.match(/([\s\S]{1,500})(?=\n|$)/g) || [res.data.answer];
+        setCurrentAnswerChunks(chunks);
+        setCurrentChunkIndex(1);
+        setAnswer(res.data.answer);
+        setCurrentThread(prev => ({ ...prev, answer: res.data.answer }));
+      } catch (err) {
+        setError("AI回答の取得に失敗しました: " + (err?.message || ''));
+        console.error('handleSubmit error', err);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+    // 2回目以降（定型質問も含む）はthreadにユーザー質問を即時pushし、AI回答は後で上書き
     setQuestion("");
+    // まずユーザー質問をthreadに追加（answerは空）
+    setCurrentThread(prev => ({
+      ...prev,
+      thread: [...prev.thread, {
+        question: q,
+        answer: '',
+        createdAt: new Date().toISOString(),
+      }],
+    }));
     try {
-      // --- threadもAPIに送信（直近5件のみ） ---
-      const threadForApi = currentThread.thread.concat(
-        currentThread.question && currentThread.answer
-          ? [{ question: currentThread.question, answer: currentThread.answer }]
-          : []
-      );
+      if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
+      // ここでFirestoreへの保存は行わず、チャット終了時のみ保存
+      const prevThread = currentThread.thread || [];
       const lastN = 5;
-      const threadForApiLimited = threadForApi.slice(-lastN);
+      const threadForApiLimited = prevThread.slice(-lastN);
       const res = await axios.post(
         API_URL,
         { question: q, grade, uid: user?.uid, thread: threadForApiLimited },
         { headers: { 'Content-Type': 'application/json' } }
       );
-      const chunks = res.data.answer && typeof res.data.answer === 'string'
-        ? res.data.answer.match(/([\s\S]{1,500})(?=\n|$)/g) || [res.data.answer]
-        : [];
-      setCurrentAnswerChunks(chunks);
-      setCurrentChunkIndex(1);
       setAnswer(res.data.answer);
-      setCurrentThread(prev => ({ ...prev, answer: res.data.answer }));
+      setCurrentAnswerChunks([res.data.answer]);
+      setCurrentChunkIndex(1);
+      // 直前にpushした質問のanswerをAI回答で上書き
+      setCurrentThread(prev => {
+        const updatedThread = [...prev.thread];
+        if (updatedThread.length > 0 && updatedThread[updatedThread.length - 1].question === q) {
+          updatedThread[updatedThread.length - 1].answer = res.data.answer;
+        }
+        return {
+          ...prev,
+          thread: updatedThread,
+        };
+      });
     } catch (err) {
-      setError("AI回答の取得に失敗しました: " + (err?.message || '')); 
+      setError("AI回答の取得に失敗しました: " + (err?.message || ''));
       console.error('handleSubmit error', err);
     } finally {
       setLoading(false);
@@ -251,36 +273,21 @@ function App() {
     setFollowupLoading(true);
     setFollowupError("");
     const q = followupText;
-    setCurrentThread(prev => {
-      let newThread = [...prev.thread];
-      if (prev.question && prev.answer) {
-        const last = newThread[newThread.length - 1];
-        if (!last || last.question !== prev.question || last.answer !== prev.answer) {
-          newThread.push({
-            question: prev.question,
-            answer: prev.answer,
-            createdAt: prev.createdAt || new Date().toISOString()
-          });
-        }
-      }
-      return {
-        ...prev,
+    setFollowupText("");
+    // まずユーザー質問をthreadに追加（answerは空）
+    setCurrentThread(prev => ({
+      ...prev,
+      thread: [...prev.thread, {
         question: q,
         answer: '',
         createdAt: new Date().toISOString(),
-        thread: newThread
-      };
-    });
-    setFollowupText("");
+      }],
+    }));
     try {
-      // --- threadもAPIに送信（直近5件のみ） ---
-      const threadForApi = currentThread.thread.concat(
-        currentThread.question && currentThread.answer
-          ? [{ question: currentThread.question, answer: currentThread.answer }]
-          : []
-      );
+      if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
+      const prevThread = currentThread.thread || [];
       const lastN = 5;
-      const threadForApiLimited = threadForApi.slice(-lastN);
+      const threadForApiLimited = prevThread.slice(-lastN);
       const res = await axios.post(
         API_URL,
         { question: q, grade, uid: user?.uid, thread: threadForApiLimited },
@@ -289,7 +296,17 @@ function App() {
       setAnswer(res.data.answer);
       setCurrentAnswerChunks([res.data.answer]);
       setCurrentChunkIndex(1);
-      setCurrentThread(prev => ({ ...prev, answer: res.data.answer }));
+      // 直前にpushした質問のanswerをAI回答で上書き
+      setCurrentThread(prev => {
+        const updatedThread = [...prev.thread];
+        if (updatedThread.length > 0 && updatedThread[updatedThread.length - 1].question === q) {
+          updatedThread[updatedThread.length - 1].answer = res.data.answer;
+        }
+        return {
+          ...prev,
+          thread: updatedThread,
+        };
+      });
     } catch (err) {
       setFollowupError("AIへの再質問に失敗しました: " + (err?.message || ''));
       console.error('handleFollowup error', err);
@@ -322,7 +339,7 @@ function App() {
             uid: { stringValue: user?.uid },
             thread: {
               arrayValue: {
-                values: currentThread.thread.map(t => ({
+                values: (currentThread.thread || []).map(t => ({
                   mapValue: {
                     fields: {
                       q: { stringValue: t.question },
@@ -341,7 +358,7 @@ function App() {
       setCurrentAnswerChunks([]); setFollowupList([]); setThreadId(null); setQuestion(""); setAnswer("");
       fetchHistory(user.uid);
     } catch (err) {
-      setError("履歴の保存に失敗しました: " + (err?.message || '')); 
+      setError("履歴の保存に失敗しました: " + (err?.message || ''));
       console.error('handleEndChat error', err);
     } finally {
       setLoading(false);
@@ -387,6 +404,24 @@ function App() {
   // 履歴の質問をクリックしたら、そのスレッド（親＋やり取り）を表示
   const handleHistoryClick = (item) => {
     setExpandedId(expandedId === item.id ? null : item.id);
+  };
+
+  // 履歴からチャットを継続する
+  const handleContinueThread = (item) => {
+    setCurrentThread({
+      question: item.question,
+      answer: item.answer,
+      thread: item.thread || [],
+      grade: item.grade || '小学生',
+      createdAt: item.createdAt || new Date().toISOString(),
+    });
+    setCurrentAnswerChunks([]);
+    setCurrentChunkIndex(0);
+    setFollowupList([]);
+    setThreadId(null);
+    setQuestion("");
+    setAnswer("");
+    setError("");
   };
 
   // UI
@@ -459,7 +494,14 @@ function App() {
           <div className="answer-area">
             <div className="answer-box">
               <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {/* ここでcurrentThread.threadの履歴をすべて表示 */}
+                {/* まず最初の質問・AI回答を交互に表示 */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                  <div className="followup-bubble-user">あなた: {currentThread.question}</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                  <div className="followup-bubble-ai">{currentThread.answer !== '' ? <FormattedText text={currentThread.answer} /> : <span style={{ color: '#888' }}>AIが考え中...</span>}</div>
+                </div>
+                {/* 以降のやり取りを交互に表示（ユーザー→AI→ユーザー→AI...） */}
                 {currentThread.thread.length > 0 && currentThread.thread.map((item, idx) => (
                   <React.Fragment key={idx}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
@@ -470,19 +512,6 @@ function App() {
                     </div>
                   </React.Fragment>
                 ))}
-                {/* 最後に現在の質問/AI回答を表示 */}
-                {currentThread.question && (
-                  <>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                      <div className="followup-bubble-user">あなた: {currentThread.question}</div>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                      <div className="followup-bubble-ai">
-                        <FormattedText text={currentThread.answer || answer || (loading ? 'AIが考え中...' : '')} />
-                      </div>
-                    </div>
-                  </>
-                )}
               </div>
               {/* 続きを表示ボタン */}
               {currentChunkIndex < currentAnswerChunks.length && (
@@ -533,38 +562,46 @@ function App() {
             <div key={item.id} className="history-list">
               <div style={{ fontWeight: 'bold', color: '#333', cursor: 'pointer' }} onClick={() => handleHistoryClick(item)}>
                 Q: {item.question}
-                <button style={{ float: 'right', fontSize: 13, background: 'none', border: 'none', color: '#4f46e5', cursor: 'pointer' }}>{expandedId === item.id ? '▲ 閉じる' : '▼ 展開'}</button>
+                <button style={{ float: 'right', fontSize: 13, background: 'none', border: 'none', color: '#4f46e5', cursor: 'pointer' }}>
+                  {expandedId === item.id ? '▲ 閉じる' : '▼ 展開'}
+                </button>
               </div>
-              <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>日時: {item.createdAt && new Date(item.createdAt).toLocaleString()} / 学年: {item.grade || '未設定'}</div>
+              <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>
+                日時: {item.createdAt && new Date(item.createdAt).toLocaleString()} / 学年: {item.grade || '未設定'}
+              </div>
               {expandedId === item.id && (
                 <div className="answer-detail" style={{ marginTop: 12 }}>
-                  {/* チャット形式で履歴スレッドを表示 */}
                   <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {/* まず最初の質問・AI回答 */}
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                      <div className="followup-bubble-user">あなた: {item.question}</div>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                      <div className="followup-bubble-ai"><FormattedText text={item.answer} /></div>
-                    </div>
-                    {/* 以降のやり取りを順に表示 */}
-                    {item.thread && item.thread.length > 0 && item.thread.map((f, idx) => (
-                      <React.Fragment key={idx}>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                          <div className="followup-bubble-user">あなた: {f.question}</div>
+                    {/* 一連の会話を一つの履歴としてまとめて表示 */}
+                    {(() => {
+                      let chatLog = [
+                        { type: 'user', text: item.question },
+                        { type: 'ai', text: item.answer }
+                      ];
+                      if (item.thread && item.thread.length > 0) {
+                        item.thread.forEach(f => {
+                          chatLog.push({ type: 'user', text: f.question });
+                          chatLog.push({ type: 'ai', text: f.answer });
+                        });
+                      }
+                      return chatLog.map((turn, idx) => (
+                        <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: turn.type === 'user' ? 'flex-end' : 'flex-start' }}>
+                          <div className={turn.type === 'user' ? 'followup-bubble-user' : 'followup-bubble-ai'}>
+                            {turn.type === 'user' ? 'あなた: ' : ''}
+                            {turn.type === 'ai' ? <FormattedText text={turn.text} /> : turn.text}
+                          </div>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                          <div className="followup-bubble-ai"><FormattedText text={f.answer} /></div>
-                        </div>
-                      </React.Fragment>
-                    ))}
+                      ));
+                    })()}
                   </div>
+                  <button onClick={() => handleContinueThread(item)} style={{ marginTop: 16, width: '100%', background: '#e0e7ff', color: '#222', fontWeight: 'bold', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 16, cursor: 'pointer' }}>
+                    このスレッドで続ける
+                  </button>
                 </div>
               )}
             </div>
           ))}
-
-        </div>
+        </div> 
       </header>
     </div>
   );

@@ -25,6 +25,14 @@ if (!admin.apps.length) {
 exports.aiAnswer = onRequest({
   region: "us-central1",
 }, async (req, res) => {
+  // --- CORS対応追加 ---
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
   logger.info("AI Answer endpoint called");
   const {question, grade, uid} = req.body;
   if (!question) {
@@ -70,13 +78,14 @@ exports.aiAnswer = onRequest({
         },
     );
     const aiMessage = response.data.choices[0].message.content;
-    // Firestoreに履歴保存
-    await admin.firestore().collection("questionHistory").add({
+    // Firestoreに履歴保存（普通のJSON形式で保存）
+    await admin.firestore().collection("questionThreads").add({
       question,
       answer: aiMessage,
       grade: grade || "",
       uid: uid || "",
       createdAt: new Date().toISOString(),
+      thread: [],
     });
     res.json({answer: aiMessage});
   } catch (err) {

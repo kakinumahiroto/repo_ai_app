@@ -17,6 +17,9 @@ const SUGGESTIONS = [
   '答えの理由を説明して',
 ];
 
+// Firestoreエミュレータ/本番のURLを環境変数から取得
+const FIRESTORE_API_URL = process.env.REACT_APP_FIRESTORE_API_URL;
+
 function App() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
@@ -62,12 +65,12 @@ function App() {
     }
   };
 
-  // Firestoreエミュレータから履歴を取得
+  // Firestoreから履歴を取得
   const fetchHistory = async (uid) => {
     if (!uid) return;
     try {
       const res = await axios.get(
-        `http://localhost:8080/v1/projects/ai-app-96b95/databases/(default)/documents/questionThreads`);
+        `${FIRESTORE_API_URL}/questionThreads`);
       if (res.data.documents && Array.isArray(res.data.documents)) {
         setHistory(res.data.documents
           .map(doc => {
@@ -274,7 +277,7 @@ function App() {
     setLoading(true);
     try {
       await axios.post(
-        `http://localhost:8080/v1/projects/ai-app-96b95/databases/(default)/documents/questionThreads`,
+        `${FIRESTORE_API_URL}/questionThreads`,
         {
           fields: {
             question: { stringValue: currentThread.question },
@@ -437,7 +440,9 @@ function App() {
                       <div className="followup-bubble-user">あなた: {currentThread.question}</div>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                      <div className="followup-bubble-ai"><FormattedText text={currentThread.answer || (loading ? 'AIが考え中...' : '')} /></div>
+                      <div className="followup-bubble-ai">
+                        <FormattedText text={currentThread.answer || answer || (loading ? 'AIが考え中...' : '')} />
+                      </div>
                     </div>
                   </>
                 )}

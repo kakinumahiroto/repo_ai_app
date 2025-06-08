@@ -7,7 +7,7 @@
  * See a full list of supported triggers at https://firebase.google.com/docs/functions
  */
 
-const { onRequest } = require("firebase-functions/v2/https");
+const {onRequest} = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 const axios = require("axios");
 const admin = require("firebase-admin");
@@ -23,12 +23,12 @@ if (!admin.apps.length) {
 }
 
 exports.aiAnswer = onRequest({
-  region: "us-central1"
+  region: "us-central1",
 }, async (req, res) => {
   logger.info("AI Answer endpoint called");
-  const { question, grade, uid } = req.body;
+  const {question, grade, uid} = req.body;
   if (!question) {
-    return res.status(400).json({ error: "question is required" });
+    return res.status(400).json({error: "question is required"});
   }
   // 学年に応じてプロンプトを調整
   let systemPrompt = "あなたは親切な家庭教師です。答えを直接教えず、ヒントや考え方を段階的に説明してください。";
@@ -49,25 +49,25 @@ exports.aiAnswer = onRequest({
   }
   try {
     const response = await axios.post(
-      OPENAI_API_URL,
-      {
-        model: OPENAI_MODEL,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: question }
-        ],
-        max_tokens: 2048,
-        temperature: 0.7,
-        top_p: 1,
-        stream: false
-      },
-      {
-        headers: {
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json"
+        OPENAI_API_URL,
+        {
+          model: OPENAI_MODEL,
+          messages: [
+            {role: "system", content: systemPrompt},
+            {role: "user", content: question},
+          ],
+          max_tokens: 2048,
+          temperature: 0.7,
+          top_p: 1,
+          stream: false,
         },
-        timeout: 60000
-      }
+        {
+          headers: {
+            "Authorization": `Bearer ${OPENAI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          timeout: 60000,
+        },
     );
     const aiMessage = response.data.choices[0].message.content;
     // Firestoreに履歴保存
@@ -76,16 +76,18 @@ exports.aiAnswer = onRequest({
       answer: aiMessage,
       grade: grade || "",
       uid: uid || "",
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     });
-    res.json({ answer: aiMessage });
+    res.json({answer: aiMessage});
   } catch (err) {
     logger.error("OpenAI API error", err);
     if (err.response && err.response.status === 429) {
       // 429 Too Many Requests: 利用制限超過や無料枠上限
-      return res.status(429).json({ error: "現在AIサーバーが混雑中、または利用上限に達しています。しばらくしてから再度お試しください。" });
+      return res.status(429).json({
+        error: "現在AIサーバーが混雑中、または利用上限に達しています。しばらくしてから再度お試しください。",
+      });
     }
-    res.status(500).json({ error: "AI回答取得に失敗しました" });
+    res.status(500).json({error: "AI回答取得に失敗しました"});
   }
 });
 

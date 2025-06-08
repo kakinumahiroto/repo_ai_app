@@ -120,7 +120,6 @@ function App() {
     setFollowupList([]);
     setThreadId(null);
     const q = suggestText || question;
-    // 1. 進行中の質問/AI回答をthread末尾にpush
     setCurrentThread(prev => {
       let newThread = [...prev.thread];
       let newCreatedAt = prev.createdAt || new Date().toISOString();
@@ -134,7 +133,6 @@ function App() {
           });
         }
       }
-      // 2. 新しい質問をcurrentThreadにセット（answerは空）
       return {
         question: q,
         answer: '',
@@ -145,16 +143,23 @@ function App() {
     });
     setQuestion("");
     try {
+      // --- threadもAPIに送信（直近5件のみ） ---
+      const threadForApi = currentThread.thread.concat(
+        currentThread.question && currentThread.answer
+          ? [{ question: currentThread.question, answer: currentThread.answer }]
+          : []
+      );
+      const lastN = 5;
+      const threadForApiLimited = threadForApi.slice(-lastN);
       const res = await axios.post(
         process.env.REACT_APP_API_URL,
-        { question: q, grade, uid: user?.uid },
+        { question: q, grade, uid: user?.uid, thread: threadForApiLimited },
         { headers: { 'Content-Type': 'application/json' } }
       );
       const chunks = res.data.answer.match(/([\s\S]{1,500})(?=\n|$)/g) || [res.data.answer];
       setCurrentAnswerChunks(chunks);
       setCurrentChunkIndex(1);
       setAnswer(res.data.answer);
-      // 3. AI回答をcurrentThread.answerにセット
       setCurrentThread(prev => ({ ...prev, answer: res.data.answer }));
     } catch (err) {
       setError("AI回答の取得に失敗しました");
@@ -213,7 +218,6 @@ function App() {
     setFollowupLoading(true);
     setFollowupError("");
     const q = followupText;
-    // 1. 進行中の質問/AI回答をthread末尾にpush
     setCurrentThread(prev => {
       let newThread = [...prev.thread];
       if (prev.question && prev.answer) {
@@ -226,7 +230,6 @@ function App() {
           });
         }
       }
-      // 2. 追加質問はcurrentThreadを空にリセット（進行中の質問として管理）
       return {
         ...prev,
         question: q,
@@ -237,15 +240,22 @@ function App() {
     });
     setFollowupText("");
     try {
+      // --- threadもAPIに送信（直近5件のみ） ---
+      const threadForApi = currentThread.thread.concat(
+        currentThread.question && currentThread.answer
+          ? [{ question: currentThread.question, answer: currentThread.answer }]
+          : []
+      );
+      const lastN = 5;
+      const threadForApiLimited = threadForApi.slice(-lastN);
       const res = await axios.post(
         process.env.REACT_APP_API_URL,
-        { question: q, grade, uid: user?.uid },
+        { question: q, grade, uid: user?.uid, thread: threadForApiLimited },
         { headers: { 'Content-Type': 'application/json' } }
       );
       setAnswer(res.data.answer);
       setCurrentAnswerChunks([res.data.answer]);
       setCurrentChunkIndex(1);
-      // 3. AI回答をcurrentThread.answerにセット
       setCurrentThread(prev => ({ ...prev, answer: res.data.answer }));
     } catch (err) {
       setFollowupError("AIへの再質問に失敗しました");

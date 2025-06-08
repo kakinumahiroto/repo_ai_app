@@ -2,11 +2,11 @@
   "firestore": {
     "database": "(default)",
     "location": "asia-northeast1",
-    "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
+    "rules": "firebase/firestore.rules",
+    "indexes": "firebase/firestore.indexes.json"
   },
   "functions": {
-    "source": "functions",
+    "source": "firebase/functions",
     "codebase": "default",
     "ignore": [
       "node_modules",
@@ -16,11 +16,11 @@
       "*.local"
     ],
     "predeploy": [
-      "npm --prefix \"$RESOURCE_DIR\" run lint"
+      "npm --prefix firebase/functions run lint"
     ]
   },
   "hosting": {
-    "public": "public",
+    "public": "react_app/build",
     "ignore": [
       "firebase.json",
       "**/.*",

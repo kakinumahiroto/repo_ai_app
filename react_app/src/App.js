@@ -3,6 +3,7 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
+import remarkMath from 'remark-math';
 import 'katex/dist/katex.min.css';
 import './App.css';
 import Tesseract from 'tesseract.js';
@@ -11,13 +12,15 @@ import 'firebase/compat/auth';
 import AuthForm from './components/AuthForm';
 import ChatBox from './components/ChatBox';
 import HistoryList from './components/HistoryList';
+import ContactForm from './components/ContactForm';
+import FormattedText from './components/FormattedText';
 
 const SUGGESTIONS = [
   'もう少しヒントが欲しい',
   '途中式を詳しく教えて',
   '別の考え方を教えて',
   'この問題の類題を出して',
-  '答えの理由を説明して',
+  '答えの理由を説明して'
 ];
 
 // Firestoreエミュレータ/本番のURLを環境変数から取得
@@ -40,6 +43,12 @@ const API_URL = (() => {
   }
   return (prodUrl && prodUrl.includes('ragChat')) ? prodUrl : prodUrl?.replace('aiAnswer', 'ragChat') || localUrl?.replace('aiAnswer', 'ragChat');
 })();
+
+// Cloud Functionsエミュレータ or 本番のURLを自動切り替え
+export const CONTACT_API_URL =
+  window.location.hostname === 'localhost'
+    ? 'http://localhost:5001/ai-app-96b95/us-central1/contact'
+    : 'https://us-central1-ai-app-96b95.cloudfunctions.net/contact';
 
 if (!FIRESTORE_API_URL) {
   // eslint-disable-next-line no-console
@@ -70,6 +79,10 @@ function App() {
   const [rag_summary, setRag_summary] = useState(""); // RAG要約
   const [imageData, setImageData] = useState(null); // 画像データ保持
   const [scrollToFollowup, setScrollToFollowup] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [imageLoadedMsg, setImageLoadedMsg] = useState("");
+  const [showContact, setShowContact] = useState(false); // お問い合わせフォーム表示制御
+  const [registerMsg, setRegisterMsg] = useState(""); // 新規登録メッセージ用ステート
 
   // Firebase初期化
   useEffect(() => {
@@ -86,17 +99,52 @@ function App() {
   const handleAuth = async (e) => {
     e.preventDefault();
     setAuthError("");
+    setRegisterMsg(""); // 新規登録メッセージを初期化
     try {
       if (authMode === "login") {
         const res = await firebase.auth().signInWithEmailAndPassword(email, password);
         setUser(res.user);
       } else {
         const res = await firebase.auth().createUserWithEmailAndPassword(email, password);
-        setUser(res.user);
+        setRegisterMsg("新規登録しました！ログインしてね！"); // 新規登録時にメッセージ表示
+        // 新規登録後は自動ログインしないのでsetUserは呼ばない
       }
     } catch (err) {
       setAuthError(err.message);
     }
+  };
+
+  // Firebase認証の永続化設定（10日間）
+  useEffect(() => {
+    if (firebase.auth().currentUser) return; // 既にログイン済みなら何もしない
+    firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    // セッションの有効期限を10日間に設定
+    firebase.auth().onAuthStateChanged(user => {
+      if (user) {
+        user.getIdTokenResult().then(idTokenResult => {
+          // 10日間で再認証が必要になるようにする
+          const expiresIn = 10 * 24 * 60 * 60 * 1000; // 10日
+          window.localStorage.setItem('firebaseSessionExpires', Date.now() + expiresIn);
+        });
+      }
+    });
+  }, []);
+
+  // ログアウト処理
+  const handleLogout = async () => {
+    await firebase.auth().signOut();
+    setUser(null);
+    setEmail("");
+    setPassword("");
+    setCurrentThread({ question: '', answer: '', thread: [], grade: '小学生', subject: '数学', createdAt: '' });
+    setCurrentAnswerChunks([]);
+    setFollowupList([]);
+    setThreadId(null);
+    setQuestion("");
+    setAnswer("");
+    setImageData(null);
+    setImageLoadedMsg("");
+    setFollowupImageData && setFollowupImageData(null);
   };
 
   // --- Firestoreから履歴を取得 ---
@@ -147,16 +195,39 @@ function App() {
     createdAt: '',
   });
 
+  // 数式を自動で$...$や$$...$$で囲む（[ ... ]→$$...$$変換も対応）
+  function formatMathInput(input) {
+    if (!input) return input;
+    // すでに$...$や$$...$$で囲まれている場合はそのまま
+    // → 1行全体が$...$または$$...$$で囲まれている場合のみスキップ
+    if (/^\s*\${1,2}[\s\S]*\${1,2}\s*$/.test(input.trim())) return input;
+    // [ ... ] で囲まれた行を $$...$$ に変換（複数行対応）
+    let replaced = input.replace(/\n?\[([\s\S]*?)\]\n?/g, (match, p1) => `\n$$\n${p1.trim()}\n$$\n`);
+    // 数式らしいパターン（英数字・記号のみ、=や^や√や分数など）を$...$で囲む
+    const mathLike = /^[\s\d\w\^\+\-\*\/=\\\(\)\[\]\\,.√π]+$/;
+    replaced = replaced.split('\n').map(line => {
+      // 1行全体が$...$や$$...$$で囲まれている場合はそのまま
+      if (/^\s*\${1,2}[\s\S]*\${1,2}\s*$/.test(line.trim())) return line;
+      // 行中に$が2つ以上含まれる場合（既に数式が混在している場合）はそのまま
+      if ((line.match(/\$/g) || []).length >= 2) return line;
+      return mathLike.test(line.trim()) ? `$${line.trim()}$` : line;
+    }).join('\n');
+    return replaced;
+  }
+
   // handleSubmit: 最初の質問時のみ新規履歴を作成し、以降はpatchで更新
   const handleSubmit = async (e, suggestText) => {
     e && e.preventDefault();
+    setImageLoadedMsg("");
+    if (!question.trim() && !imageData) return;
     setLoading(true);
     setError("");
     setAnswer("");
     setCurrentAnswerChunks([]);
     setCurrentChunkIndex(0);
     setFollowupList([]);
-    const q = suggestText || question;
+    // --- ここで数式整形 ---
+    const q = formatMathInput(suggestText || question);
     // --- 科目ごとにプロンプト最適化 ---
     let subjectPrompt = "";
     if (subject === "数学") {
@@ -179,6 +250,17 @@ function App() {
     }
     // 新規スレッド開始
     if (!currentThread.question) {
+      // --- ここで全てのスレッド状態をリセット ---
+      setCurrentThread({ question: '', answer: '', thread: [], grade: '小学生', subject: '数学', createdAt: '' });
+      setCurrentAnswerChunks([]);
+      setCurrentChunkIndex(0);
+      setFollowupList([]);
+      setThreadId(null);
+      setAnswer("");
+      setImageData(null);
+      setImageLoadedMsg("");
+      setFollowupImageData && setFollowupImageData(null);
+      // --- 新しいスレッドを開始 ---
       const createdAt = new Date().toISOString();
       const newThread = {
         question: q,
@@ -218,7 +300,7 @@ function App() {
             },
             { headers: { 'Content-Type': 'application/json' } }
           );
-          // FirestoreのドキュメントIDをthreadIdに保存
+          // FirestoreのドキュメントIDをthreadIdに保存（新規スレッド用に必ず新しいIDをセット）
           const id = resp.data.name?.split('/').pop();
           setThreadId(id);
           // 画面上のcurrentThreadにもanswerを反映
@@ -268,7 +350,7 @@ function App() {
           thread: updatedThread,
         };
       });
-      setImageData(null);
+      setImageData(null); // 送信後のみクリア
       // Firestoreの既存ドキュメントをpatchで更新
       if (FIRESTORE_API_URL && user?.uid && threadId) {
         await axios.patch(
@@ -314,23 +396,25 @@ function App() {
     }
   };
 
-  const handleImageInput = async (e) => {
+  const handleImageInput = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     setLoading(true);
+    setImageLoading(true); // 画像読み込み中
+    setImageLoadedMsg("");
     setError("");
     try {
-      // OCRテキスト化
-      const { data: { text } } = await Tesseract.recognize(file, 'jpn+eng');
-      setQuestion(prev => (prev ? prev + '\n' : '') + text.trim());
-      // base64化
       const reader = new FileReader();
       reader.onload = () => {
         setImageData(reader.result);
+        setImageLoading(false);
+        setImageLoadedMsg("画像を読み込みました");
       };
       reader.readAsDataURL(file);
     } catch (err) {
-      setError("画像からテキスト抽出に失敗しました");
+      setError("画像の読み込みに失敗しました");
+      setImageLoading(false);
+      setImageLoadedMsg("");
     } finally {
       setLoading(false);
     }
@@ -363,14 +447,18 @@ function App() {
   const [followupLoading, setFollowupLoading] = useState(false);
   const [followupError, setFollowupError] = useState("");
   const [threadId, setThreadId] = useState(null); // スレッドID（親質問ID）
+  // 追加: 追加質問用の画像データを分離
+  const [followupImageData, setFollowupImageData] = useState(null);
 
   // AI返答への自由入力送信
   const handleFollowup = async (e) => {
     e.preventDefault();
-    if (!followupText.trim()) return;
+    setImageLoadedMsg(""); // 追加: 追加質問時に画像読み込みメッセージをクリア
+    if (!followupText.trim() && !followupImageData) return;
     setFollowupLoading(true);
     setFollowupError("");
-    const q = followupText;
+    // --- ここで数式整形 ---
+    const q = formatMathInput(followupText);
     setFollowupText("");
     const newFollow = {
       question: q,
@@ -389,7 +477,7 @@ function App() {
       const threadForApiLimited = prevThread.slice(-lastN);
       const res = await axios.post(
         API_URL,
-        { question: q, grade, uid: user?.uid, currentThread, imageData },
+        { question: q, grade, uid: user?.uid, currentThread, imageData: followupImageData },
         { headers: { 'Content-Type': 'application/json' } }
       );
       setAnswer(res.data.answer);
@@ -405,7 +493,7 @@ function App() {
           thread: updatedThread,
         };
       });
-      setImageData(null);
+      setFollowupImageData(null); // 送信後のみクリア
       // Firestoreの既存ドキュメントをpatchで更新
       if (FIRESTORE_API_URL && user?.uid && threadId) {
         await axios.patch(
@@ -451,29 +539,25 @@ function App() {
     }
   };
 
-  // チャット終了時にFirestoreへ保存し、履歴を更新
-  const handleEndChat = async () => {
-    setCurrentThread({ question: '', answer: '', thread: [], grade: '小学生', subject: '数学', createdAt: '' });
-    setCurrentAnswerChunks([]); setFollowupList([]); setThreadId(null); setQuestion(""); setAnswer("");
-    if (user?.uid) fetchHistory(user.uid);
-  };
-
-  const handleImageInputFollowup = async (e) => {
+  const handleImageInputFollowup = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     setFollowupLoading(true);
+    setImageLoading(true);
+    setImageLoadedMsg("");
     setFollowupError("");
     try {
-      const { data: { text } } = await Tesseract.recognize(file, 'jpn+eng');
-      setFollowupText(prev => (prev ? prev + '\n' : '') + text.trim());
-      // base64化
       const reader = new FileReader();
       reader.onload = () => {
-        setImageData(reader.result);
+        setFollowupImageData(reader.result);
+        setImageLoading(false);
+        setImageLoadedMsg("画像を読み込みました");
       };
       reader.readAsDataURL(file);
     } catch (err) {
-      setFollowupError("画像からテキスト抽出に失敗しました");
+      setFollowupError("画像の読み込みに失敗しました");
+      setImageLoading(false);
+      setImageLoadedMsg("");
     } finally {
       setFollowupLoading(false);
     }
@@ -498,6 +582,20 @@ function App() {
       setFollowupError('音声認識エラー: ' + event.error);
     };
     recognition.start();
+  };
+
+  // チャット終了時にFirestoreへ保存し、履歴を更新
+  const handleEndChat = async () => {
+    setCurrentThread({ question: '', answer: '', thread: [], grade: '小学生', subject: '数学', createdAt: '' });
+    setCurrentAnswerChunks([]);
+    setFollowupList([]);
+    setThreadId(null);
+    setQuestion("");
+    setAnswer("");
+    setImageData(null); // 画像データもクリア
+    setImageLoadedMsg(""); // 画像読み込みメッセージもクリア
+    setFollowupImageData && setFollowupImageData(null); // 追加質問用画像もクリア
+    if (user?.uid) fetchHistory(user.uid);
   };
 
   // 履歴の質問をクリックしたら、そのスレッド（親＋やり取り）を表示
@@ -531,6 +629,10 @@ function App() {
       <div className="App">
         <header className="App-header">
           <h1>AI家庭教師「まなび先生」</h1>
+          {/* 新規登録メッセージ表示 */}
+          {registerMsg && (
+            <div style={{ color: '#16a34a', fontWeight: 'bold', marginBottom: 12, fontSize: 16 }}>{registerMsg}</div>
+          )}
           <AuthForm
             authMode={authMode}
             setAuthMode={setAuthMode}
@@ -550,57 +652,80 @@ function App() {
     <div className="App">
       <header className="App-header">
         <h1>AI家庭教師「まなび先生」</h1>
-        <div className="form-center-wrap">
-          <form onSubmit={handleSubmit} className="form-center" style={{ width: '100%' }}>
-            <div style={{ marginBottom: 8, textAlign: 'left', color: '#888', fontSize: 14 }}>
-              効果的な質問例:「この問題の考え方を教えて」「途中式を説明して」「どこが分からないか具体的に教えて」など。
-            </div>
-            <div style={{ marginBottom: 8, textAlign: 'center' }}>
-              <label style={{ fontWeight: 'bold', marginRight: 8 }}>学年:</label>
-              <select value={grade} onChange={e => setGrade(e.target.value)} style={{ fontSize: 16, padding: 4 }}>
-                <option value="小学生">小学生</option>
-                <option value="中学生">中学生</option>
-                <option value="高校生">高校生</option>
-              </select>
-            </div>
-            {/* --- 科目選択欄追加 --- */}
-            <div style={{ marginBottom: 8, textAlign: 'center' }}>
-              <label style={{ fontWeight: 'bold', marginRight: 8 }}>科目:</label>
-              <select value={subject} onChange={e => setSubject(e.target.value)} style={{ fontSize: 16, padding: 4 }}>
-                <option value="数学">数学</option>
-                <option value="英語">英語</option>
-                <option value="理科">理科</option>
-                <option value="社会">社会</option>
-                <option value="国語">国語</option>
-              </select>
-            </div>
-            <textarea
-              value={question}
-              onChange={e => setQuestion(e.target.value)}
-              placeholder="質問を入力してください（例：この数学の問題の考え方を教えて）"
-              rows={3}
-              style={{ width: '100%' }}
-              required
-            />
-            {showPromptHelp && (
-              <div style={{ color: '#e67e22', margin: '8px 0', fontSize: 15, textAlign: 'left' }}>
-                効果的な質問をするには「どの教科・単元か」「どこが分からないか」「どんな答えが欲しいか」を具体的に書くと良いです。
+        {/* 案内メニュー */}
+        <nav className="main-menu">
+          <button onClick={() => setShowContact(false)} className={!showContact ? 'active' : ''}>質問メニュー</button>
+          <button onClick={() => setShowContact(true)} className={showContact ? 'active' : ''}>お問い合わせ</button>
+          <button onClick={handleLogout} style={{ marginLeft: 'auto', background: '#e0e7ff', color: '#222', fontWeight: 'bold', borderRadius: 6, border: 'none', padding: '8px 18px', fontSize: 15, cursor: 'pointer' }}>ログアウト</button>
+        </nav>
+        {showContact ? (
+          <ContactForm onClose={() => setShowContact(false)} />
+        ) : (
+          <div className="form-center-wrap">
+            <form onSubmit={handleSubmit} className="form-center" style={{ width: '100%' }}>
+              <div style={{ marginBottom: 8, textAlign: 'left', color: '#888', fontSize: 14 }}>
+                効果的な質問例:「この問題の考え方を教えて」「途中式を説明して」「どこが分からないか具体的に教えて」など。
               </div>
-            )}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 8, justifyContent: 'center' }}>
-              <label htmlFor="imageInput" style={{ background: '#e0e7ff', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', fontWeight: 'bold' }}>
-                <span role="img" aria-label="カメラ" style={{ marginRight: 4 }}>📷</span><span style={{ fontWeight: 'bold' }}>画像から質問</span>
-                <input id="imageInput" type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageInput} />
-              </label>
-              <button type="button" onClick={handleSpeechInput} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold' }}>
-                <span role="img" aria-label="マイク" style={{ marginRight: 4 }}>🎤</span>音声で質問
+              <div style={{ marginBottom: 8, textAlign: 'center' }}>
+                <label style={{ fontWeight: 'bold', marginRight: 8 }}>学年:</label>
+                <select value={grade} onChange={e => setGrade(e.target.value)} style={{ fontSize: 16, padding: 4 }}>
+                  <option value="小学生">小学生</option>
+                  <option value="中学生">中学生</option>
+                  <option value="高校生">高校生</option>
+                </select>
+              </div>
+              {/* --- 科目選択欄追加 --- */}
+              <div style={{ marginBottom: 8, textAlign: 'center' }}>
+                <label style={{ fontWeight: 'bold', marginRight: 8 }}>科目:</label>
+                <select value={subject} onChange={e => setSubject(e.target.value)} style={{ fontSize: 16, padding: 4 }}>
+                  <option value="数学">数学</option>
+                  <option value="英語">英語</option>
+                  <option value="理科">理科</option>
+                  <option value="社会">社会</option>
+                  <option value="国語">国語</option>
+                </select>
+              </div>
+              {/* 質問フォーム */}
+              <div className="question-textarea-wrapper" style={{ position: 'relative' }}>
+                <textarea
+                  value={question}
+                  onChange={e => setQuestion(e.target.value)}
+                  placeholder="質問を入力してください（例：この数学の問題の考え方を教えて）"
+                  rows={3}
+                  style={{ width: '100%', paddingRight: imageData ? 36 : undefined }}
+                  required
+                />
+                {/* 画像が読み込み済みなら右下にカメラアイコン */}
+                {imageData && !imageLoading && (
+                  <span className="camera-icon-attached" title="画像が添付されています">📷</span>
+                )}
+              </div>
+              {imageLoading && (
+                <div className="image-loading-msg">画像を読み込んでいます...</div>
+              )}
+              {imageLoadedMsg && !imageLoading && (
+                <div className="image-loaded-msg">{imageLoadedMsg}</div>
+              )}
+              {showPromptHelp && (
+                <div style={{ color: '#e67e22', margin: '8px 0', fontSize: 15, textAlign: 'left' }}>
+                  効果的な質問をするには「どの教科・単元か」「どこが分からないか」「どんな答えが欲しいか」を具体的に書くと良いです。
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8, justifyContent: 'center' }}>
+                <label htmlFor="imageInput" style={{ background: '#e0e7ff', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', fontWeight: 'bold' }}>
+                  <span role="img" aria-label="カメラ" style={{ marginRight: 4 }}>📷</span><span style={{ fontWeight: 'bold' }}>画像から質問</span>
+                  <input id="imageInput" type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageInput} />
+                </label>
+                <button type="button" onClick={handleSpeechInput} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold' }}>
+                  <span role="img" aria-label="マイク" style={{ marginRight: 4 }}>🎤</span>音声で質問
+                </button>
+              </div>
+              <button type="submit" disabled={loading || !question} style={{ marginTop: 8, width: 180, alignSelf: 'center' }}>
+                {loading ? 'AIが考え中...' : '質問する'}
               </button>
-            </div>
-            <button type="submit" disabled={loading || !question} style={{ marginTop: 8, width: 180, alignSelf: 'center' }}>
-              {loading ? 'AIが考え中...' : '質問する'}
-            </button>
-          </form>
-        </div>
+            </form>
+          </div>
+        )}
         {/* --- AI回答・追加質問UI --- */}
         {currentThread.question && (
           <ChatBox
@@ -630,6 +755,10 @@ function App() {
             setImageData={setImageData}
             scrollToFollowup={scrollToFollowup}
             resetScrollToFollowup={() => setScrollToFollowup(false)}
+            imageLoading={imageLoading}
+            imageLoadedMsg={imageLoadedMsg}
+            followupImageData={followupImageData}
+            setFollowupImageData={setFollowupImageData}
           />
         )}
         {/* 履歴リスト */}
@@ -640,23 +769,6 @@ function App() {
           handleContinueThread={handleContinueThread}
         />
       </header>
-    </div>
-  );
-}
-
-// テキスト内の数式（$...$や$$...$$）、コードブロック、改行、画像URLを成形して表示するコンポーネント
-function FormattedText({ text }) {
-  // KaTeXで数式を美しく表示（ReactMathjaxは不要）
-  return (
-    <div>
-      {typeof text === 'string' && text.trim() ? (
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeKatex]}
-        >
-          {text}
-        </ReactMarkdown>
-      ) : null}
     </div>
   );
 }

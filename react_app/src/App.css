@@ -1,5 +1,18 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #f5f7ff;
+  min-width: 100vw;
+  min-height: 100vh;
+}
+
 .App {
-  text-align: center;
+  min-height: 100vh;
+  background: #f5f7ff;
 }
 
 .App-logo {
@@ -14,7 +27,7 @@
 }
 
 .App-header {
-  background: rgba(245,247,255,0.96);
+  background: transparent;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -24,7 +37,7 @@
   color: #222;
   padding-top: 24px;
   box-shadow: 0 2px 16px 0 rgba(60,80,180,0.08);
-  max-width: 600px;
+  max-width: 100vw;
   margin: 0 auto;
 }
 
@@ -39,11 +52,6 @@
   to {
     transform: rotate(360deg);
   }
-}
-
-body {
-  background: linear-gradient(135deg, #e5e7eb 0%, #c7d2fe 100%);
-  font-size: 15px;
 }
 
 textarea {
@@ -292,4 +300,114 @@ form .suggest-btns {
 .followup-bubble-user, .followup-bubble-ai {
   word-break: break-word;
   white-space: pre-line;
+}
+
+/* --- レスポンシブ対応: スマホでのUI崩れ・入力UI改善 --- */
+@media (max-width: 600px) {
+  .App-header {
+    max-width: 100vw;
+    padding: 8px 0 0 0;
+    min-height: 100vh;
+  }
+  .form-center, .form-center-wrap {
+    max-width: 100vw;
+    width: 100vw;
+    padding: 0 2vw;
+    box-sizing: border-box;
+  }
+  .form-center select, .form-center textarea {
+    max-width: 98vw;
+    width: 98vw;
+    font-size: 18px;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    box-sizing: border-box;
+  }
+  .history-list, .center-history {
+    max-width: 100vw;
+    width: 100vw;
+    padding: 8px 2vw;
+    border-radius: 8px;
+    box-sizing: border-box;
+  }
+}
+
+/* --- 音声・画像入力ボタンの横並び崩れ対策 --- */
+.form-center {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.form-center .input-btn-row {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.form-center .mic-btn, .form-center .img-btn {
+  background: #e0e7ff;
+  color: #222;
+  font-size: 15px;
+  padding: 6px 12px;
+  font-weight: bold;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  min-width: 120px;
+  margin-bottom: 0;
+}
+.form-center .mic-btn:active, .form-center .img-btn:active {
+  background: #c7d2fe;
+}
+
+/* --- スマホ幅でのボタン・入力欄のサイズ調整 --- */
+@media (max-width: 600px) {
+  .form-center {
+    gap: 12px;
+  }
+  .form-center .input-btn-row {
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .form-center button,
+  .form-center .mic-btn,
+  .form-center .img-btn,
+  .form-center label[for="imageInput"] {
+    font-size: 18px;
+    padding: 14px 0;
+    min-width: 44vw;
+    max-width: 90vw;
+    width: 44vw;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    box-sizing: border-box;
+  }
+  .form-center button[type="submit"] {
+    width: 90vw;
+    min-width: 90vw;
+    max-width: 90vw;
+    font-size: 20px;
+    padding: 16px 0;
+    margin: 12px auto 0 auto;
+    border-radius: 10px;
+    font-weight: bold;
+  }
+  .form-center textarea {
+    min-height: 100px;
+    font-size: 17px;
+    padding: 10px;
+    border-radius: 8px;
+  }
+  .form-center select {
+    font-size: 17px;
+    padding: 8px;
+    border-radius: 6px;
+  }
 }

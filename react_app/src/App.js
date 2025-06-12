@@ -8,6 +8,9 @@ import './App.css';
 import Tesseract from 'tesseract.js';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
+import AuthForm from './components/AuthForm';
+import ChatBox from './components/ChatBox';
+import HistoryList from './components/HistoryList';
 
 const SUGGESTIONS = [
   'もう少しヒントが欲しい',
@@ -31,10 +34,11 @@ const FIRESTORE_API_URL = (() => {
 const API_URL = (() => {
   const localUrl = process.env.REACT_APP_API_URL_LOCAL;
   const prodUrl = process.env.REACT_APP_API_URL_PROD;
+  // ragChatエンドポイントを優先して明示的に利用
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    return localUrl || prodUrl;
+    return (localUrl && localUrl.includes('ragChat')) ? localUrl : localUrl?.replace('aiAnswer', 'ragChat') || prodUrl?.replace('aiAnswer', 'ragChat');
   }
-  return prodUrl || localUrl;
+  return (prodUrl && prodUrl.includes('ragChat')) ? prodUrl : prodUrl?.replace('aiAnswer', 'ragChat') || localUrl?.replace('aiAnswer', 'ragChat');
 })();
 
 if (!FIRESTORE_API_URL) {
@@ -54,6 +58,7 @@ function App() {
   const [history, setHistory] = useState([]);
   const [showPromptHelp, setShowPromptHelp] = useState(false); // 曖昧な質問時の誘導表示
   const [grade, setGrade] = useState("小学生"); // 学年選択用
+  const [subject, setSubject] = useState("数学"); // 科目選択用
   const [expandedId, setExpandedId] = useState(null);
   const [currentAnswerChunks, setCurrentAnswerChunks] = useState([]); // 分割表示用
   const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
@@ -62,6 +67,8 @@ function App() {
   const [password, setPassword] = useState("");
   const [authMode, setAuthMode] = useState("login"); // "login" or "register"
   const [authError, setAuthError] = useState("");
+  const [rag_summary, setRag_summary] = useState(""); // RAG要約
+  const [imageData, setImageData] = useState(null); // 画像データ保持
 
   // Firebase初期化
   useEffect(() => {
@@ -147,8 +154,28 @@ function App() {
     setCurrentAnswerChunks([]);
     setCurrentChunkIndex(0);
     setFollowupList([]);
-    setThreadId(null);
+    // setThreadId(null); ← ここは消す（履歴継続時にthreadIdを維持）
     const q = suggestText || question;
+    // --- 科目ごとにプロンプト最適化 ---
+    let subjectPrompt = "";
+    if (subject === "数学") {
+      subjectPrompt = "あなたは親切な数学の家庭教師です。数式や途中式を分かりやすく説明し、図やグラフも活用して指導してください。";
+    } else if (subject === "英語") {
+      subjectPrompt = "あなたは親切な英語の家庭教師です。英文法や単語の意味、例文を分かりやすく説明してください。";
+    } else if (subject === "理科") {
+      subjectPrompt = "あなたは親切な理科の家庭教師です。現象や用語を分かりやすく説明してください。";
+    } else if (subject === "社会") {
+      subjectPrompt = "あなたは親切な社会の家庭教師です。歴史や地理、公民の内容を分かりやすく説明してください。";
+    } else if (subject === "国語") {
+      subjectPrompt = "あなたは親切な国語の家庭教師です。文章の意味や読解のコツを分かりやすく説明してください。";
+    }
+    // --- 他科目履歴が存在する場合は科目切り替えを促す ---
+    const prevSubjects = (currentThread.thread || []).map(t => t.subject).filter(s => s && s !== subject);
+    if (prevSubjects.length > 0) {
+      setError(`このスレッドには他の科目（${[...new Set(prevSubjects)].join(', ')}）の質問が含まれています。科目を「${subject}」に切り替えて新しいスレッドで質問してください。`);
+      setLoading(false);
+      return;
+    }
     // もしcurrentThread.questionが空なら新規スレッド開始
     if (!currentThread.question) {
       setCurrentThread({
@@ -156,6 +183,7 @@ function App() {
         answer: '',
         thread: [],
         grade,
+        subject,
         createdAt: new Date().toISOString(),
       });
       setQuestion("");
@@ -163,7 +191,7 @@ function App() {
         if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
         const res = await axios.post(
           API_URL,
-          { question: q, grade, uid: user?.uid, thread: [] },
+          { question: q, grade, subject, uid: user?.uid, currentThread, subjectPrompt, imageData },
           { headers: { 'Content-Type': 'application/json' } }
         );
         const chunks = res.data.answer.match(/([\s\S]{1,500})(?=\n|$)/g) || [res.data.answer];
@@ -171,6 +199,8 @@ function App() {
         setCurrentChunkIndex(1);
         setAnswer(res.data.answer);
         setCurrentThread(prev => ({ ...prev, answer: res.data.answer }));
+        setImageData(null); // 送信後はクリア
+        setThreadId(null); // 新規スレッド時のみthreadIdをリセット
       } catch (err) {
         setError("AI回答の取得に失敗しました: " + (err?.message || ''));
         console.error('handleSubmit error', err);
@@ -179,32 +209,30 @@ function App() {
       }
       return;
     }
-    // 2回目以降（定型質問も含む）はthreadにユーザー質問を即時pushし、AI回答は後で上書き
+    // 既存スレッドの場合はthreadIdを維持し、履歴を新規作成しない
     setQuestion("");
-    // まずユーザー質問をthreadに追加（answerは空）
     setCurrentThread(prev => ({
       ...prev,
       thread: [...prev.thread, {
         question: q,
         answer: '',
         createdAt: new Date().toISOString(),
+        subject,
       }],
     }));
     try {
       if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
-      // ここでFirestoreへの保存は行わず、チャット終了時のみ保存
-      const prevThread = currentThread.thread || [];
+      const prevThread = (currentThread.thread || []).filter(t => t.subject === subject);
       const lastN = 5;
       const threadForApiLimited = prevThread.slice(-lastN);
       const res = await axios.post(
         API_URL,
-        { question: q, grade, uid: user?.uid, thread: threadForApiLimited },
+        { question: q, grade, subject, uid: user?.uid, currentThread, subjectPrompt, imageData },
         { headers: { 'Content-Type': 'application/json' } }
       );
       setAnswer(res.data.answer);
       setCurrentAnswerChunks([res.data.answer]);
       setCurrentChunkIndex(1);
-      // 直前にpushした質問のanswerをAI回答で上書き
       setCurrentThread(prev => {
         const updatedThread = [...prev.thread];
         if (updatedThread.length > 0 && updatedThread[updatedThread.length - 1].question === q) {
@@ -215,6 +243,8 @@ function App() {
           thread: updatedThread,
         };
       });
+      setImageData(null); // 送信後はクリア
+      // setThreadId(null); ← ここは消さない（履歴継続時はthreadId維持）
     } catch (err) {
       setError("AI回答の取得に失敗しました: " + (err?.message || ''));
       console.error('handleSubmit error', err);
@@ -229,8 +259,15 @@ function App() {
     setLoading(true);
     setError("");
     try {
+      // OCRテキスト化
       const { data: { text } } = await Tesseract.recognize(file, 'jpn+eng');
       setQuestion(prev => (prev ? prev + '\n' : '') + text.trim());
+      // base64化
+      const reader = new FileReader();
+      reader.onload = () => {
+        setImageData(reader.result);
+      };
+      reader.readAsDataURL(file);
     } catch (err) {
       setError("画像からテキスト抽出に失敗しました");
     } finally {
@@ -290,13 +327,12 @@ function App() {
       const threadForApiLimited = prevThread.slice(-lastN);
       const res = await axios.post(
         API_URL,
-        { question: q, grade, uid: user?.uid, thread: threadForApiLimited },
+        { question: q, grade, uid: user?.uid, currentThread, imageData },
         { headers: { 'Content-Type': 'application/json' } }
       );
       setAnswer(res.data.answer);
       setCurrentAnswerChunks([res.data.answer]);
       setCurrentChunkIndex(1);
-      // 直前にpushした質問のanswerをAI回答で上書き
       setCurrentThread(prev => {
         const updatedThread = [...prev.thread];
         if (updatedThread.length > 0 && updatedThread[updatedThread.length - 1].question === q) {
@@ -307,6 +343,7 @@ function App() {
           thread: updatedThread,
         };
       });
+      setImageData(null); // 送信後はクリア
     } catch (err) {
       setFollowupError("AIへの再質問に失敗しました: " + (err?.message || ''));
       console.error('handleFollowup error', err);
@@ -318,7 +355,7 @@ function App() {
   // チャット終了時にFirestoreへ保存し、履歴を更新
   const handleEndChat = async () => {
     if (!currentThread.question || !currentThread.answer) {
-      setCurrentThread({ question: '', answer: '', thread: [], grade: '小学生', createdAt: '' });
+      setCurrentThread({ question: '', answer: '', thread: [], grade: '小学生', subject: '数学', createdAt: '' });
       setCurrentAnswerChunks([]); setFollowupList([]); setThreadId(null); setQuestion(""); setAnswer("");
       return;
     }
@@ -328,33 +365,68 @@ function App() {
     }
     setLoading(true);
     try {
-      await axios.post(
-        `${FIRESTORE_API_URL}/questionThreads`,
-        {
-          fields: {
-            question: { stringValue: currentThread.question },
-            answer: { stringValue: currentThread.answer },
-            createdAt: { stringValue: currentThread.createdAt },
-            grade: { stringValue: currentThread.grade },
-            uid: { stringValue: user?.uid },
-            thread: {
-              arrayValue: {
-                values: (currentThread.thread || []).map(t => ({
-                  mapValue: {
-                    fields: {
-                      q: { stringValue: t.question },
-                      a: { stringValue: t.answer },
-                      createdAt: { stringValue: t.createdAt }
+      if (threadId) {
+        // 既存スレッドの場合はFirestoreの既存ドキュメントをupdate
+        await axios.patch(
+          `${FIRESTORE_API_URL}/questionThreads/${threadId}`,
+          {
+            fields: {
+              question: { stringValue: currentThread.question },
+              answer: { stringValue: currentThread.answer },
+              createdAt: { stringValue: currentThread.createdAt },
+              grade: { stringValue: currentThread.grade },
+              subject: { stringValue: currentThread.subject || subject },
+              uid: { stringValue: user?.uid },
+              thread: {
+                arrayValue: {
+                  values: (currentThread.thread || []).map(t => ({
+                    mapValue: {
+                      fields: {
+                        q: { stringValue: t.question },
+                        a: { stringValue: t.answer },
+                        createdAt: { stringValue: t.createdAt },
+                        subject: { stringValue: t.subject || subject },
+                      }
                     }
-                  }
-                }))
-              }
-            },
-          }
-        },
-        { headers: { 'Content-Type': 'application/json' } }
-      );
-      setCurrentThread({ question: '', answer: '', thread: [], grade: '小学生', createdAt: '' });
+                  }))
+                }
+              },
+            }
+          },
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+      } else {
+        // 新規スレッドの場合はadd
+        await axios.post(
+          `${FIRESTORE_API_URL}/questionThreads`,
+          {
+            fields: {
+              question: { stringValue: currentThread.question },
+              answer: { stringValue: currentThread.answer },
+              createdAt: { stringValue: currentThread.createdAt },
+              grade: { stringValue: currentThread.grade },
+              subject: { stringValue: currentThread.subject || subject },
+              uid: { stringValue: user?.uid },
+              thread: {
+                arrayValue: {
+                  values: (currentThread.thread || []).map(t => ({
+                    mapValue: {
+                      fields: {
+                        q: { stringValue: t.question },
+                        a: { stringValue: t.answer },
+                        createdAt: { stringValue: t.createdAt },
+                        subject: { stringValue: t.subject || subject },
+                      }
+                    }
+                  }))
+                }
+              },
+            }
+          },
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      setCurrentThread({ question: '', answer: '', thread: [], grade: '小学生', subject: '数学', createdAt: '' });
       setCurrentAnswerChunks([]); setFollowupList([]); setThreadId(null); setQuestion(""); setAnswer("");
       fetchHistory(user.uid);
     } catch (err) {
@@ -373,6 +445,12 @@ function App() {
     try {
       const { data: { text } } = await Tesseract.recognize(file, 'jpn+eng');
       setFollowupText(prev => (prev ? prev + '\n' : '') + text.trim());
+      // base64化
+      const reader = new FileReader();
+      reader.onload = () => {
+        setImageData(reader.result);
+      };
+      reader.readAsDataURL(file);
     } catch (err) {
       setFollowupError("画像からテキスト抽出に失敗しました");
     } finally {
@@ -414,11 +492,12 @@ function App() {
       thread: item.thread || [],
       grade: item.grade || '小学生',
       createdAt: item.createdAt || new Date().toISOString(),
+      subject: item.subject || '数学',
     });
     setCurrentAnswerChunks([]);
     setCurrentChunkIndex(0);
     setFollowupList([]);
-    setThreadId(null);
+    setThreadId(item.id); // ここでthreadIdをセット
     setQuestion("");
     setAnswer("");
     setError("");
@@ -430,16 +509,16 @@ function App() {
       <div className="App">
         <header className="App-header">
           <h1>AI家庭教師「まなび先生」</h1>
-          <form onSubmit={handleAuth} style={{ maxWidth: 360, margin: '40px auto', background: '#fff', borderRadius: 8, padding: 24, boxShadow: '0 2px 8px #bfcfff' }}>
-            <h2 style={{ marginBottom: 16 }}>{authMode === "login" ? "ログイン" : "新規登録"}</h2>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="メールアドレス" required style={{ width: '100%', marginBottom: 12, padding: 8, fontSize: 15 }} />
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="パスワード" required style={{ width: '100%', marginBottom: 16, padding: 8, fontSize: 15 }} />
-            <button type="submit" style={{ width: '100%', marginBottom: 8 }}>{authMode === "login" ? "ログイン" : "登録"}</button>
-            <div style={{ textAlign: 'right', fontSize: 13 }}>
-              <span style={{ cursor: 'pointer', color: '#4f46e5' }} onClick={() => setAuthMode(authMode === "login" ? "register" : "login")}>{authMode === "login" ? "新規登録はこちら" : "ログインはこちら"}</span>
-            </div>
-            {authError && <div style={{ color: 'red', marginTop: 10 }}>{authError}</div>}
-          </form>
+          <AuthForm
+            authMode={authMode}
+            setAuthMode={setAuthMode}
+            email={email}
+            setEmail={setEmail}
+            password={password}
+            setPassword={setPassword}
+            handleAuth={handleAuth}
+            authError={authError}
+          />
         </header>
       </div>
     );
@@ -462,6 +541,17 @@ function App() {
                 <option value="高校生">高校生</option>
               </select>
             </div>
+            {/* --- 科目選択欄追加 --- */}
+            <div style={{ marginBottom: 8, textAlign: 'center' }}>
+              <label style={{ fontWeight: 'bold', marginRight: 8 }}>科目:</label>
+              <select value={subject} onChange={e => setSubject(e.target.value)} style={{ fontSize: 16, padding: 4 }}>
+                <option value="数学">数学</option>
+                <option value="英語">英語</option>
+                <option value="理科">理科</option>
+                <option value="社会">社会</option>
+                <option value="国語">国語</option>
+              </select>
+            </div>
             <textarea
               value={question}
               onChange={e => setQuestion(e.target.value)}
@@ -476,8 +566,8 @@ function App() {
               </div>
             )}
             <div style={{ display: 'flex', gap: 8, marginBottom: 8, justifyContent: 'center' }}>
-              <label htmlFor="imageInput" style={{ background: '#e0e7ff', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center' }}>
-                <span role="img" aria-label="カメラ" style={{ marginRight: 4 }}>📷</span>画像から質問
+              <label htmlFor="imageInput" style={{ background: '#e0e7ff', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', fontWeight: 'bold' }}>
+                <span role="img" aria-label="カメラ" style={{ marginRight: 4 }}>📷</span><span style={{ fontWeight: 'bold' }}>画像から質問</span>
                 <input id="imageInput" type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageInput} />
               </label>
               <button type="button" onClick={handleSpeechInput} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold' }}>
@@ -489,119 +579,42 @@ function App() {
             </button>
           </form>
         </div>
-        {/* AI回答分割表示 */}
+        {/* --- AI回答・追加質問UI --- */}
         {currentThread.question && (
-          <div className="answer-area">
-            <div className="answer-box">
-              <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {/* まず最初の質問・AI回答を交互に表示 */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                  <div className="followup-bubble-user">あなた: {currentThread.question}</div>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <div className="followup-bubble-ai">{currentThread.answer !== '' ? <FormattedText text={currentThread.answer} /> : <span style={{ color: '#888' }}>AIが考え中...</span>}</div>
-                </div>
-                {/* 以降のやり取りを交互に表示（ユーザー→AI→ユーザー→AI...） */}
-                {currentThread.thread.length > 0 && currentThread.thread.map((item, idx) => (
-                  <React.Fragment key={idx}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                      <div className="followup-bubble-user">あなた: {item.question}</div>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                      <div className="followup-bubble-ai">{item.answer !== '' ? <FormattedText text={item.answer} /> : <span style={{ color: '#888' }}>AIが考え中...</span>}</div>
-                    </div>
-                  </React.Fragment>
-                ))}
-              </div>
-              {/* 続きを表示ボタン */}
-              {currentChunkIndex < currentAnswerChunks.length && (
-                <button onClick={() => setCurrentChunkIndex(i => i + 1)} style={{ marginTop: 12 }}>続きを表示</button>
-              )}
-              {/* 選択式の追加質問誘導 */}
-              <div className="suggest-btns">
-                {SUGGESTIONS.map(s => (
-                  <button key={s} type="button" onClick={() => handleSubmit(null, s)}>{s}</button>
-                ))}
-              </div>
-              {/* --- 追加: AI返答への自由入力欄＋音声・画像 --- */}
-              <form onSubmit={handleFollowup} className="followup-form" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
-                <input
-                  type="text"
-                  value={followupText}
-                  onChange={e => setFollowupText(e.target.value)}
-                  placeholder="AIへの追加質問や返答を入力..."
-                  disabled={followupLoading}
-                  style={{ marginBottom: 0 }}
-                />
-                <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginBottom: 0 }}>
-                  <label htmlFor="followupImageInput" className="icon-btn" style={{ minWidth: 160, justifyContent: 'center', fontWeight: 'bold' }}>
-                    <span role="img" aria-label="カメラ" style={{ marginRight: 8 }}>📷</span>画像から質問
-                    <input id="followupImageInput" type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleImageInputFollowup(e)} />
-                  </label>
-                  <button type="button" className="icon-btn" onClick={handleSpeechInputFollowup} style={{ minWidth: 160, fontWeight: 'bold', justifyContent: 'center' }}>
-                    <span role="img" aria-label="マイク" style={{ marginRight: 8 }}>🎤</span>音声で質問
-                  </button>
-                </div>
-                <button type="submit" disabled={followupLoading || !followupText.trim()} style={{ width: '100%', marginTop: 0 }}>
-                  送信
-                </button>
-              </form>
-              {followupError && <div style={{ color: 'red', marginTop: 6 }}>{followupError}</div>}
-              {/* チャット終了ボタン */}
-              <button onClick={handleEndChat} style={{ marginTop: 18, width: '100%', background: '#e0e7ff', color: '#222', fontWeight: 'bold', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 16, cursor: 'pointer' }}>
-                チャットを終了する
-              </button>
-            </div>
-          </div>
+          <ChatBox
+            currentThread={currentThread}
+            currentAnswerChunks={currentAnswerChunks}
+            currentChunkIndex={currentChunkIndex}
+            setCurrentChunkIndex={setCurrentChunkIndex}
+            followupText={followupText}
+            setFollowupText={setFollowupText}
+            followupLoading={followupLoading}
+            handleFollowup={handleFollowup}
+            handleImageInputFollowup={handleImageInputFollowup}
+            handleSpeechInputFollowup={handleSpeechInputFollowup}
+            handleEndChat={handleEndChat}
+            error={error}
+            loading={loading}
+            question={question}
+            setQuestion={setQuestion}
+            grade={grade}
+            setGrade={setGrade}
+            handleSubmit={handleSubmit}
+            handleImageInput={handleImageInput}
+            handleSpeechInput={handleSpeechInput}
+            showPromptHelp={showPromptHelp}
+            followupError={followupError}
+            imageData={imageData}
+            setImageData={setImageData}
+          />
         )}
-        {/* 履歴（質問のみリスト、クリックでスレッド展開） */}
-        <div className="center-history" style={{ marginTop: 32, maxWidth: 480, width: '100%' }}>
-          <h2>質問履歴</h2>
-          {history.length === 0 && <div style={{ color: '#888' }}>履歴はありません</div>}
-          {history.map(item => (
-            <div key={item.id} className="history-list">
-              <div style={{ fontWeight: 'bold', color: '#333', cursor: 'pointer' }} onClick={() => handleHistoryClick(item)}>
-                Q: {item.question}
-                <button style={{ float: 'right', fontSize: 13, background: 'none', border: 'none', color: '#4f46e5', cursor: 'pointer' }}>
-                  {expandedId === item.id ? '▲ 閉じる' : '▼ 展開'}
-                </button>
-              </div>
-              <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>
-                日時: {item.createdAt && new Date(item.createdAt).toLocaleString()} / 学年: {item.grade || '未設定'}
-              </div>
-              {expandedId === item.id && (
-                <div className="answer-detail" style={{ marginTop: 12 }}>
-                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {/* 一連の会話を一つの履歴としてまとめて表示 */}
-                    {(() => {
-                      let chatLog = [
-                        { type: 'user', text: item.question },
-                        { type: 'ai', text: item.answer }
-                      ];
-                      if (item.thread && item.thread.length > 0) {
-                        item.thread.forEach(f => {
-                          chatLog.push({ type: 'user', text: f.question });
-                          chatLog.push({ type: 'ai', text: f.answer });
-                        });
-                      }
-                      return chatLog.map((turn, idx) => (
-                        <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: turn.type === 'user' ? 'flex-end' : 'flex-start' }}>
-                          <div className={turn.type === 'user' ? 'followup-bubble-user' : 'followup-bubble-ai'}>
-                            {turn.type === 'user' ? 'あなた: ' : ''}
-                            {turn.type === 'ai' ? <FormattedText text={turn.text} /> : turn.text}
-                          </div>
-                        </div>
-                      ));
-                    })()}
-                  </div>
-                  <button onClick={() => handleContinueThread(item)} style={{ marginTop: 16, width: '100%', background: '#e0e7ff', color: '#222', fontWeight: 'bold', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 16, cursor: 'pointer' }}>
-                    このスレッドで続ける
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div> 
+        {/* 履歴リスト */}
+        <HistoryList
+          history={history}
+          expandedId={expandedId}
+          handleHistoryClick={handleHistoryClick}
+          handleContinueThread={handleContinueThread}
+        />
       </header>
     </div>
   );

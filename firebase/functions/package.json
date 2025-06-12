@@ -14,15 +14,17 @@
   },
   "main": "index.js",
   "dependencies": {
+    "@langchain/openai": "^0.0.7",
     "axios": "^1.9.0",
     "dotenv": "^16.5.0",
-    "firebase-admin": "^12.6.0",
-    "firebase-functions": "^6.0.1"
+    "firebase-admin": "11.11.1",
+    "firebase-functions": "6.3.2",
+    "langchain": "0.0.190"
   },
   "devDependencies": {
     "eslint": "^8.15.0",
     "eslint-config-google": "^0.14.0",
-    "firebase-functions-test": "^3.1.0"
+    "firebase-functions-test": "^3.4.1"
   },
   "private": true
 }

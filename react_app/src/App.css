@@ -207,7 +207,7 @@ button:disabled {
   background: #f3f7ff;
   border-radius: 12px;
   padding: 10px 16px;
-  max-width: 80%;
+  max-width: 70%;
   align-self: flex-start;
   margin-left: 8px;
   margin-top: 2px;
@@ -380,6 +380,10 @@ form .suggest-btns {
     margin-left: auto !important;
     margin-right: auto !important;
     display: block !important;
+  }
+  .answer-detail {
+    margin-top: 24px !important;
+    margin-bottom: 24px !important;
   }
 }
 
@@ -709,5 +713,23 @@ form .suggest-btns {
     overflow-x: hidden !important;
     box-sizing: border-box;
     position: relative;
+  }
+}
+
+/* スマホ画面（max-width:600px）の時だけ.followup-bubble-userにmargin-top:50pxを追加 */
+@media (max-width: 600px) {
+  .followup-bubble-user {
+    margin-top: 50px !important;
+  }
+}
+
+
+/* スマホ画面で.answer-detail（履歴の白背景部分）を中央寄せ・最大幅94vwにするCSS */
+@media (max-width: 600px) {
+  .answer-detail {
+    margin-left: center !important;
+    margin-right: center !important;
+    display: block !important;
+    max-width: 82vw !important;
   }
 }

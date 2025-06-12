@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -69,6 +69,7 @@ function App() {
   const [authError, setAuthError] = useState("");
   const [rag_summary, setRag_summary] = useState(""); // RAG要約
   const [imageData, setImageData] = useState(null); // 画像データ保持
+  const [scrollToFollowup, setScrollToFollowup] = useState(false);
 
   // Firebase初期化
   useEffect(() => {
@@ -521,6 +522,7 @@ function App() {
     setQuestion("");
     setAnswer("");
     setError("");
+    setScrollToFollowup(true); // 追加: followupフォームへスクロール要求
   };
 
   // UI
@@ -626,6 +628,8 @@ function App() {
             followupError={followupError}
             imageData={imageData}
             setImageData={setImageData}
+            scrollToFollowup={scrollToFollowup}
+            resetScrollToFollowup={() => setScrollToFollowup(false)}
           />
         )}
         {/* 履歴リスト */}

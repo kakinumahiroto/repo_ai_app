@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import FormattedText from './FormattedText';
 
 const SUGGESTIONS = [
@@ -33,8 +33,19 @@ function ChatBox({
   showPromptHelp,
   followupError,
   imageData,
-  setImageData
+  setImageData,
+  scrollToFollowup,
+  resetScrollToFollowup
 }) {
+  const followupFormRef = useRef(null);
+
+  useEffect(() => {
+    if (scrollToFollowup && followupFormRef.current) {
+      followupFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      resetScrollToFollowup && resetScrollToFollowup();
+    }
+  }, [scrollToFollowup, resetScrollToFollowup]);
+
   return (
     <div className="answer-area">
       <div className="answer-box">
@@ -69,7 +80,12 @@ function ChatBox({
           ))}
         </div>
         {/* --- 追加: AI返答への自由入力欄＋音声・画像 --- */}
-        <form onSubmit={handleFollowup} className="followup-form" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+        <form
+          ref={followupFormRef}
+          onSubmit={handleFollowup}
+          className="followup-form"
+          style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}
+        >
           <input
             type="text"
             value={followupText}

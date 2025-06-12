@@ -733,3 +733,19 @@ form .suggest-btns {
     max-width: 82vw !important;
   }
 }
+
+/* スマホ画面で.suggest-btns（定型質問ボタン）を縦一列・全幅で並べるCSS */
+@media (max-width: 600px) {
+  .suggest-btns {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+  .suggest-btns button {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+  }
+}

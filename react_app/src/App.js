@@ -122,7 +122,8 @@ function App() {
               }))
             };
           })
-          .filter(item => item.uid === uid && item.question && item.thread.length > 0) // thread配列が空のものは履歴に含めない
+          // 修正: threadが空でもquestion/answerがあれば履歴に含める
+          .filter(item => item.uid === uid && item.question && item.answer)
           .sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
         setHistory(historyArr);
       } else {
@@ -145,7 +146,7 @@ function App() {
     createdAt: '',
   });
 
-  // handleSubmit: 最初の質問のみ新規履歴を作成し、以降はthreadにまとめて保存
+  // handleSubmit: 最初の質問時のみ新規履歴を作成し、以降はpatchで更新
   const handleSubmit = async (e, suggestText) => {
     e && e.preventDefault();
     setLoading(true);
@@ -154,7 +155,6 @@ function App() {
     setCurrentAnswerChunks([]);
     setCurrentChunkIndex(0);
     setFollowupList([]);
-    // setThreadId(null); ← ここは消す（履歴継続時にthreadIdを維持）
     const q = suggestText || question;
     // --- 科目ごとにプロンプト最適化 ---
     let subjectPrompt = "";
@@ -176,31 +176,54 @@ function App() {
       setLoading(false);
       return;
     }
-    // もしcurrentThread.questionが空なら新規スレッド開始
+    // 新規スレッド開始
     if (!currentThread.question) {
-      setCurrentThread({
+      const createdAt = new Date().toISOString();
+      const newThread = {
         question: q,
         answer: '',
         thread: [],
         grade,
         subject,
-        createdAt: new Date().toISOString(),
-      });
+        createdAt,
+      };
+      setCurrentThread(newThread);
       setQuestion("");
       try {
         if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
         const res = await axios.post(
           API_URL,
-          { question: q, grade, subject, uid: user?.uid, currentThread, subjectPrompt, imageData },
+          { question: q, grade, subject, uid: user?.uid, currentThread: newThread, subjectPrompt, imageData },
           { headers: { 'Content-Type': 'application/json' } }
         );
         const chunks = res.data.answer.match(/([\s\S]{1,500})(?=\n|$)/g) || [res.data.answer];
         setCurrentAnswerChunks(chunks);
         setCurrentChunkIndex(1);
         setAnswer(res.data.answer);
-        setCurrentThread(prev => ({ ...prev, answer: res.data.answer }));
-        setImageData(null); // 送信後はクリア
-        setThreadId(null); // 新規スレッド時のみthreadIdをリセット
+        // Firestoreに新規作成
+        if (FIRESTORE_API_URL && user?.uid) {
+          const resp = await axios.post(
+            `${FIRESTORE_API_URL}/questionThreads`,
+            {
+              fields: {
+                question: { stringValue: q },
+                answer: { stringValue: res.data.answer },
+                createdAt: { stringValue: createdAt },
+                grade: { stringValue: grade },
+                subject: { stringValue: subject },
+                uid: { stringValue: user.uid },
+                thread: { arrayValue: { values: [] } },
+              }
+            },
+            { headers: { 'Content-Type': 'application/json' } }
+          );
+          // FirestoreのドキュメントIDをthreadIdに保存
+          const id = resp.data.name?.split('/').pop();
+          setThreadId(id);
+          // 画面上のcurrentThreadにもanswerを反映
+          setCurrentThread(prev => ({ ...prev, answer: res.data.answer }));
+          fetchHistory(user.uid);
+        }
       } catch (err) {
         setError("AI回答の取得に失敗しました: " + (err?.message || ''));
         console.error('handleSubmit error', err);
@@ -209,16 +232,17 @@ function App() {
       }
       return;
     }
-    // 既存スレッドの場合はthreadIdを維持し、履歴を新規作成しない
+    // 既存スレッドの場合はthreadに追加し、Firestoreをpatchで更新
     setQuestion("");
+    const newFollow = {
+      question: q,
+      answer: '',
+      createdAt: new Date().toISOString(),
+      subject,
+    };
     setCurrentThread(prev => ({
       ...prev,
-      thread: [...prev.thread, {
-        question: q,
-        answer: '',
-        createdAt: new Date().toISOString(),
-        subject,
-      }],
+      thread: [...prev.thread, newFollow],
     }));
     try {
       if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
@@ -243,8 +267,44 @@ function App() {
           thread: updatedThread,
         };
       });
-      setImageData(null); // 送信後はクリア
-      // setThreadId(null); ← ここは消さない（履歴継続時はthreadId維持）
+      setImageData(null);
+      // Firestoreの既存ドキュメントをpatchで更新
+      if (FIRESTORE_API_URL && user?.uid && threadId) {
+        await axios.patch(
+          `${FIRESTORE_API_URL}/questionThreads/${threadId}`,
+          {
+            fields: {
+              question: { stringValue: currentThread.question },
+              answer: { stringValue: res.data.answer },
+              createdAt: { stringValue: currentThread.createdAt },
+              grade: { stringValue: currentThread.grade },
+              subject: { stringValue: currentThread.subject || subject },
+              uid: { stringValue: user.uid },
+              thread: {
+                arrayValue: {
+                  values: ([...currentThread.thread, {
+                    question: q,
+                    answer: res.data.answer,
+                    createdAt: new Date().toISOString(),
+                    subject,
+                  }]).map(t => ({
+                    mapValue: {
+                      fields: {
+                        q: { stringValue: t.question },
+                        a: { stringValue: t.answer },
+                        createdAt: { stringValue: t.createdAt },
+                        subject: { stringValue: t.subject || subject },
+                      }
+                    }
+                  }))
+                }
+              },
+            }
+          },
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+        fetchHistory(user.uid);
+      }
     } catch (err) {
       setError("AI回答の取得に失敗しました: " + (err?.message || ''));
       console.error('handleSubmit error', err);
@@ -311,14 +371,15 @@ function App() {
     setFollowupError("");
     const q = followupText;
     setFollowupText("");
-    // まずユーザー質問をthreadに追加（answerは空）
+    const newFollow = {
+      question: q,
+      answer: '',
+      createdAt: new Date().toISOString(),
+      subject,
+    };
     setCurrentThread(prev => ({
       ...prev,
-      thread: [...prev.thread, {
-        question: q,
-        answer: '',
-        createdAt: new Date().toISOString(),
-      }],
+      thread: [...prev.thread, newFollow],
     }));
     try {
       if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
@@ -343,7 +404,44 @@ function App() {
           thread: updatedThread,
         };
       });
-      setImageData(null); // 送信後はクリア
+      setImageData(null);
+      // Firestoreの既存ドキュメントをpatchで更新
+      if (FIRESTORE_API_URL && user?.uid && threadId) {
+        await axios.patch(
+          `${FIRESTORE_API_URL}/questionThreads/${threadId}`,
+          {
+            fields: {
+              question: { stringValue: currentThread.question },
+              answer: { stringValue: res.data.answer },
+              createdAt: { stringValue: currentThread.createdAt },
+              grade: { stringValue: currentThread.grade },
+              subject: { stringValue: currentThread.subject || subject },
+              uid: { stringValue: user.uid },
+              thread: {
+                arrayValue: {
+                  values: ([...currentThread.thread, {
+                    question: q,
+                    answer: res.data.answer,
+                    createdAt: new Date().toISOString(),
+                    subject,
+                  }]).map(t => ({
+                    mapValue: {
+                      fields: {
+                        q: { stringValue: t.question },
+                        a: { stringValue: t.answer },
+                        createdAt: { stringValue: t.createdAt },
+                        subject: { stringValue: t.subject || subject },
+                      }
+                    }
+                  }))
+                }
+              },
+            }
+          },
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+        fetchHistory(user.uid);
+      }
     } catch (err) {
       setFollowupError("AIへの再質問に失敗しました: " + (err?.message || ''));
       console.error('handleFollowup error', err);
@@ -354,87 +452,9 @@ function App() {
 
   // チャット終了時にFirestoreへ保存し、履歴を更新
   const handleEndChat = async () => {
-    if (!currentThread.question || !currentThread.answer) {
-      setCurrentThread({ question: '', answer: '', thread: [], grade: '小学生', subject: '数学', createdAt: '' });
-      setCurrentAnswerChunks([]); setFollowupList([]); setThreadId(null); setQuestion(""); setAnswer("");
-      return;
-    }
-    if (!FIRESTORE_API_URL) {
-      setError('Firestore APIのURLが設定されていません。環境変数REACT_APP_FIRESTORE_API_URLを確認してください。');
-      return;
-    }
-    setLoading(true);
-    try {
-      if (threadId) {
-        // 既存スレッドの場合はFirestoreの既存ドキュメントをupdate
-        await axios.patch(
-          `${FIRESTORE_API_URL}/questionThreads/${threadId}`,
-          {
-            fields: {
-              question: { stringValue: currentThread.question },
-              answer: { stringValue: currentThread.answer },
-              createdAt: { stringValue: currentThread.createdAt },
-              grade: { stringValue: currentThread.grade },
-              subject: { stringValue: currentThread.subject || subject },
-              uid: { stringValue: user?.uid },
-              thread: {
-                arrayValue: {
-                  values: (currentThread.thread || []).map(t => ({
-                    mapValue: {
-                      fields: {
-                        q: { stringValue: t.question },
-                        a: { stringValue: t.answer },
-                        createdAt: { stringValue: t.createdAt },
-                        subject: { stringValue: t.subject || subject },
-                      }
-                    }
-                  }))
-                }
-              },
-            }
-          },
-          { headers: { 'Content-Type': 'application/json' } }
-        );
-      } else {
-        // 新規スレッドの場合はadd
-        await axios.post(
-          `${FIRESTORE_API_URL}/questionThreads`,
-          {
-            fields: {
-              question: { stringValue: currentThread.question },
-              answer: { stringValue: currentThread.answer },
-              createdAt: { stringValue: currentThread.createdAt },
-              grade: { stringValue: currentThread.grade },
-              subject: { stringValue: currentThread.subject || subject },
-              uid: { stringValue: user?.uid },
-              thread: {
-                arrayValue: {
-                  values: (currentThread.thread || []).map(t => ({
-                    mapValue: {
-                      fields: {
-                        q: { stringValue: t.question },
-                        a: { stringValue: t.answer },
-                        createdAt: { stringValue: t.createdAt },
-                        subject: { stringValue: t.subject || subject },
-                      }
-                    }
-                  }))
-                }
-              },
-            }
-          },
-          { headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-      setCurrentThread({ question: '', answer: '', thread: [], grade: '小学生', subject: '数学', createdAt: '' });
-      setCurrentAnswerChunks([]); setFollowupList([]); setThreadId(null); setQuestion(""); setAnswer("");
-      fetchHistory(user.uid);
-    } catch (err) {
-      setError("履歴の保存に失敗しました: " + (err?.message || ''));
-      console.error('handleEndChat error', err);
-    } finally {
-      setLoading(false);
-    }
+    setCurrentThread({ question: '', answer: '', thread: [], grade: '小学生', subject: '数学', createdAt: '' });
+    setCurrentAnswerChunks([]); setFollowupList([]); setThreadId(null); setQuestion(""); setAnswer("");
+    if (user?.uid) fetchHistory(user.uid);
   };
 
   const handleImageInputFollowup = async (e) => {

@@ -676,3 +676,38 @@ form .suggest-btns {
     font-size: 18px !important;
   }
 }
+
+@media (max-width: 600px) {
+  .center-history {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    margin: 0 auto 0 auto !important;
+    padding: 0 !important;
+    box-sizing: border-box;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+  }
+  .history-list {
+    width: 90vw !important;
+    max-width: 90vw !important;
+    min-width: 0 !important;
+    margin: 0 0 22px 0 !important;
+    box-sizing: border-box;
+    padding: 16px 4vw 12px 4vw !important;
+    border-radius: 12px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+  }
+  /* 横スクロール完全防止 */
+  html, body, #root, .App, .App-header {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    overflow-x: hidden !important;
+    box-sizing: border-box;
+    position: relative;
+  }
+}

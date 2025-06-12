@@ -2,14 +2,6 @@ import React from 'react';
 import FormattedText from './FormattedText';
 
 function HistoryList({ history, expandedId, handleHistoryClick, handleContinueThread }) {
-  const answerDetailRef = React.useRef(null);
-
-  React.useEffect(() => {
-    if (answerDetailRef.current) {
-      answerDetailRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, [expandedId]);
-
   return (
     <div className="center-history" style={{ marginTop: 32, maxWidth: 480, width: '100%' }}>
       <h2>質問履歴</h2>
@@ -26,7 +18,7 @@ function HistoryList({ history, expandedId, handleHistoryClick, handleContinueTh
             日時: {item.createdAt && new Date(item.createdAt).toLocaleString()} / 学年: {item.grade || '未設定'}
           </div>
           {expandedId === item.id && (
-            <div ref={expandedId === item.id ? answerDetailRef : null} className="answer-detail" style={{ marginTop: 20, marginBottom: 20 }}>
+            <div className="answer-detail" style={{ marginTop: 20, marginBottom: 20 }}>
               <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {/* 一連の会話を一つの履歴としてまとめて表示 */}
                 {(() => {

@@ -97,7 +97,7 @@ button:disabled {
   letter-spacing: 1px;
   margin-bottom: 12px;
   font-size: 1.5rem;
-  text-align: left;
+  text-align: center;
 }
 
 .App .App-header h2 {
@@ -260,7 +260,7 @@ form .suggest-btns {
 .form-center label,
 .form-center select,
 .form-center textarea {
-  text-align: left;
+  text-align: center;
 }
 
 /* 質問履歴中央揃え */
@@ -304,32 +304,82 @@ form .suggest-btns {
 
 /* --- レスポンシブ対応: スマホでのUI崩れ・入力UI改善 --- */
 @media (max-width: 600px) {
-  .App-header {
-    max-width: 100vw;
-    padding: 8px 0 0 0;
-    min-height: 100vh;
-  }
-  .form-center, .form-center-wrap {
-    max-width: 100vw;
-    width: 100vw;
-    padding: 0 2vw;
+  /* 画面全体を中央揃え */
+  body, #root, .App, .App-header {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    width: 100vw !important;
+    min-width: 0 !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
     box-sizing: border-box;
   }
-  .form-center select, .form-center textarea {
-    max-width: 98vw;
-    width: 98vw;
-    font-size: 18px;
-    padding: 12px;
-    border-radius: 8px;
-    margin-bottom: 10px;
+  /* タイトル・説明文も中央揃え */
+  .App-header h1,
+  .App-header h2,
+  .App-header > p {
+    text-align: center !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    width: 100% !important;
+    display: block !important;
+  }
+  /* .form-center自体も中央揃え */
+  .form-center {
+    align-items: center !important;
+    justify-content: center !important;
+    width: 100vw !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
     box-sizing: border-box;
   }
-  .history-list, .center-history {
-    max-width: 100vw;
-    width: 100vw;
-    padding: 8px 2vw;
-    border-radius: 8px;
-    box-sizing: border-box;
+  /* 学年・科目選択メニューも中央揃え */
+  .form-center .grade-subject-row {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    width: 70vw !important;
+    margin: 0 auto 12px auto !important;
+    padding: 0 !important;
+  }
+  .form-center .grade-subject-row label {
+    text-align: center !important;
+    width: 100% !important;
+    display: block !important;
+    margin: 0 auto 4px auto !important;
+  }
+  .form-center .grade-subject-row select {
+    width: 70vw !important;
+    max-width: 320px !important;
+    min-width: 120px !important;
+    margin: 0 auto 10px auto !important;
+    display: block !important;
+    font-size: 18px !important;
+    text-align: left !important;
+  }
+  /* 入力欄も中央揃え */
+  .form-center textarea {
+    margin: 0 auto 10px auto !important;
+    display: block !important;
+  }
+  /* 画像・音声ボタンrowも中央揃え */
+  .form-center .input-btn-row {
+    justify-content: center !important;
+    align-items: center !important;
+    width: 100vw !important;
+    margin: 0 auto 8px auto !important;
+    padding: 0 !important;
+  }
+  /* ボタンも中央揃え */
+  .form-center button,
+  .form-center .mic-btn,
+  .form-center .img-btn,
+  .form-center label[for="imageInput"] {
+    margin-left: auto !important;
+    margin-right: auto !important;
+    display: block !important;
   }
 }
 
@@ -409,5 +459,220 @@ form .suggest-btns {
     font-size: 17px;
     padding: 8px;
     border-radius: 6px;
+  }
+}
+
+/* --- スマートフォン画面のみ横スクロール防止・幅最適化 --- */
+@media (max-width: 600px) {
+  html, body, #root, .App, .App-header {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    overflow-x: hidden !important;
+    box-sizing: border-box;
+    position: relative;
+  }
+  /* すべての子要素の横幅を100vw未満に制限 */
+  .form-center, .form-center-wrap, .center-history, .history-list, .answer-area, .answer-box, .answer-detail {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    box-sizing: border-box;
+    overflow-x: hidden !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  /* 主要なフォーム部品・ボタンも幅を徹底 */
+  .form-center > *,
+  .form-center textarea,
+  .form-center select,
+  .form-center .input-btn-row button,
+  .form-center .mic-btn,
+  .form-center .img-btn,
+  .form-center label[for="imageInput"] {
+    width: 96vw !important;
+    max-width: 96vw !important;
+    min-width: 0 !important;
+    box-sizing: border-box;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  /* 送信ボタンも幅を揃える */
+  .form-center button[type="submit"] {
+    width: 96vw !important;
+    max-width: 96vw !important;
+    min-width: 0 !important;
+    margin: 12px auto 0 auto !important;
+    font-size: 20px;
+    padding: 16px 0;
+    border-radius: 10px;
+    font-weight: bold;
+  }
+  /* 画像や音声ボタンのrowも幅を徹底 */
+  .form-center .input-btn-row {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    box-sizing: border-box;
+    overflow-x: hidden !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  /* bodyのoverflow-xも明示的にhidden */
+  body {
+    overflow-x: hidden !important;
+  }
+}
+
+/* --- スマホ画面での横スクロール完全防止: さらに徹底 --- */
+@media (max-width: 600px) {
+  html, body, #root, .App, .App-header {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    overflow-x: hidden !important;
+    box-sizing: border-box;
+    position: relative;
+  }
+  /* すべての子要素の横幅をvw基準で制限し、padding/marginも0に */
+  .form-center, .form-center-wrap, .center-history, .history-list, .answer-area, .answer-box, .answer-detail {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    box-sizing: border-box;
+    overflow-x: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  /* 主要なフォーム部品・ボタンも幅を徹底 */
+  .form-center > *,
+  .form-center textarea,
+  .form-center select,
+  .form-center .input-btn-row button,
+  .form-center .mic-btn,
+  .form-center .img-btn,
+  .form-center label[for="imageInput"] {
+    width: 94vw !important;
+    max-width: 94vw !important;
+    min-width: 0 !important;
+    box-sizing: border-box;
+    margin: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  /* 送信ボタンも幅を揃える */
+  .form-center button[type="submit"] {
+    width: 94vw !important;
+    max-width: 94vw !important;
+    min-width: 0 !important;
+    margin: 12px auto 0 auto !important;
+    font-size: 20px;
+    padding: 16px 0;
+    border-radius: 10px;
+    font-weight: bold;
+  }
+  /* 画像や音声ボタンのrowも幅を徹底 */
+  .form-center .input-btn-row {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    box-sizing: border-box;
+    overflow-x: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  /* bodyのoverflow-xも明示的にhidden */
+  body {
+    overflow-x: hidden !important;
+  }
+}
+
+/* --- スマホ画面で画像で質問・音声で質問ボタンを同じ幅・中央揃え・テキスト中央 --- */
+@media (max-width: 600px) {
+  /* 画像で質問・音声で質問ボタンを同じ幅・中央揃え・テキスト中央 */
+  .form-center .input-btn-row {
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 10px !important;
+    width: 100vw !important;
+    margin: 0 auto 8px auto !important;
+    padding: 0 !important;
+  }
+  .form-center .mic-btn,
+  .form-center .img-btn {
+    width: 80vw !important;
+    max-width: 320px !important;
+    min-width: 120px !important;
+    margin: 0 auto !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    font-size: 18px !important;
+    box-sizing: border-box;
+  }
+  /* 画像で質問ボタンのテキストも中央揃え */
+  .form-center .img-btn {
+    justify-content: center !important;
+    text-align: center !important;
+  }
+}
+
+/* --- 画像から質問・音声で質問ボタンの色・形・UI統一 --- */
+.form-center .mic-btn,
+.form-center .img-btn {
+  background: #e0e7ff !important;
+  color: #222 !important;
+  font-size: 16px !important;
+  font-weight: bold !important;
+  border-radius: 8px !important;
+  border: none !important;
+  box-shadow: 0 1px 4px 0 rgba(60,80,180,0.04) !important;
+  padding: 12px 0 !important;
+  min-width: 160px !important;
+  max-width: 320px !important;
+  width: 100% !important;
+  margin: 0 8px 0 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  transition: background 0.2s, box-shadow 0.2s !important;
+}
+.form-center .mic-btn:active,
+.form-center .img-btn:active {
+  background: #c7d2fe !important;
+}
+
+/* PC・スマホ両対応で横並び、スマホ時は縦並び */
+.form-center .input-btn-row {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  margin: 0 auto 8px auto;
+}
+@media (max-width: 600px) {
+  .form-center .input-btn-row {
+    flex-direction: column !important;
+    gap: 10px !important;
+    width: 100vw !important;
+    margin: 0 auto 8px auto !important;
+    padding: 0 !important;
+  }
+  .form-center .mic-btn,
+  .form-center .img-btn {
+    width: 80vw !important;
+    min-width: 120px !important;
+    max-width: 320px !important;
+    margin: 0 auto !important;
+    font-size: 18px !important;
   }
 }

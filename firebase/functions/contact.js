@@ -23,9 +23,9 @@ const gmailPass = process.env.GMAIL_PASS
   });
 
   res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, x-user-email');
   if (req.method === 'OPTIONS') {
     res.set('Access-Control-Allow-Methods', 'POST');
-    res.set('Access-Control-Allow-Headers', 'Content-Type');
     res.status(204).send('');
     return;
   }
@@ -36,7 +36,7 @@ const gmailPass = process.env.GMAIL_PASS
   if (!subject || !body) return res.status(400).send('Missing fields');
   try {
     await transporter.sendMail({
-      from: `${userEmail} <${gmailUser}>`,
+      from: gmailUser,
       to: gmailUser,
       subject: `[お問い合わせ] ${subject} (from: ${userEmail})`,
       text: `送信者: ${userEmail}\n\n${body}`,

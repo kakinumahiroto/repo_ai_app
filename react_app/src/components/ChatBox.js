@@ -42,10 +42,17 @@ function ChatBox({
   setFollowupImageData,
 }) {
   const followupFormRef = useRef(null);
+  const followupInputRef = useRef(null);
 
   useEffect(() => {
     if (scrollToFollowup && followupFormRef.current) {
       followupFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // スクロール後にテキストエリアにフォーカス
+      setTimeout(() => {
+        if (followupInputRef.current) {
+          followupInputRef.current.focus();
+        }
+      }, 500); // スクロールアニメーションの完了を待つ
       resetScrollToFollowup && resetScrollToFollowup();
     }
   }, [scrollToFollowup, resetScrollToFollowup]);
@@ -112,9 +119,9 @@ function ChatBox({
           onSubmit={handleFollowup}
           className="followup-form"
           style={{ position: 'relative', marginTop: 18, display: 'flex', gap: 8, width: '100%', justifyContent: 'center' }}
-        >
-          <div className="followup-input-wrapper" style={{ position: 'relative', flex: 1 }}>
+        >          <div className="followup-input-wrapper" style={{ position: 'relative', flex: 1 }}>
             <input
+              ref={followupInputRef}
               type="text"
               value={followupText}
               onChange={e => setFollowupText(e.target.value)}

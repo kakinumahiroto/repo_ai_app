@@ -59,6 +59,207 @@ if (!API_URL) {
   console.error('REACT_APP_API_URL_LOCAL/PRODが未設定です。AI API呼び出しは失敗します。');
 }
 
+// プロフィール画面コンポーネント
+const ProfileView = ({ user, userProfile, setCurrentView, saveUserProfile, setGrade }) => {
+  const [editMode, setEditMode] = useState(false);
+  const [tempGrade, setTempGrade] = useState(userProfile.preferredGrade || '小学生');
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveMessage('');
+    try {
+      const updatedProfile = {
+        ...userProfile,
+        preferredGrade: tempGrade
+      };
+      await saveUserProfile(updatedProfile);
+      setGrade(tempGrade); // 現在の学年設定も更新
+      setEditMode(false);
+      setSaveMessage('学年設定を保存しました！');
+      setTimeout(() => setSaveMessage(''), 3000);
+    } catch (error) {
+      setSaveMessage('保存に失敗しました。もう一度お試しください。');
+      setTimeout(() => setSaveMessage(''), 3000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setTempGrade(userProfile.preferredGrade || '小学生');
+    setEditMode(false);
+  };
+
+  return (
+    <div style={{ maxWidth: 480, margin: '0 auto', padding: 20 }}>
+      <div style={{ background: 'white', borderRadius: 12, padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+        <h2 style={{ marginBottom: 24, color: '#374151', textAlign: 'center' }}>👤 プロフィール</h2>
+        
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: 8, color: '#374151' }}>
+            📧 メールアドレス
+          </label>
+          <div style={{ 
+            padding: '12px 16px', 
+            background: '#f9fafb', 
+            border: '1px solid #e5e7eb', 
+            borderRadius: 8, 
+            color: '#6b7280' 
+          }}>
+            {user?.email || 'メールアドレスが取得できません'}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: 8, color: '#374151' }}>
+            🏷️ ニックネーム
+          </label>
+          <div style={{ 
+            padding: '12px 16px', 
+            background: '#f9fafb', 
+            border: '1px solid #e5e7eb', 
+            borderRadius: 8, 
+            color: '#374151' 
+          }}>
+            {userProfile.nickname || 'ニックネームが設定されていません'}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <label style={{ fontWeight: 'bold', color: '#374151' }}>
+              🎓 学年設定
+            </label>
+            {!editMode && (
+              <button
+                onClick={() => setEditMode(true)}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #d1d5db',
+                  borderRadius: 4,
+                  padding: '4px 8px',
+                  fontSize: 12,
+                  color: '#4f46e5',
+                  cursor: 'pointer'
+                }}
+              >
+                ✏️ 編集
+              </button>
+            )}
+          </div>
+          
+          {editMode ? (
+            <div>
+              <select
+                value={tempGrade}
+                onChange={(e) => setTempGrade(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  border: '2px solid #4f46e5',
+                  borderRadius: 8,
+                  fontSize: 16,
+                  marginBottom: 12
+                }}
+              >
+                <option value="小学生">小学生</option>
+                <option value="中学生">中学生</option>
+                <option value="高校生">高校生</option>
+              </select>
+              
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  style={{
+                    flex: 1,
+                    background: '#10b981',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '8px 16px',
+                    fontSize: 14,
+                    fontWeight: 'bold',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    opacity: saving ? 0.7 : 1
+                  }}
+                >
+                  {saving ? '保存中...' : '💾 保存'}
+                </button>
+                <button
+                  onClick={handleCancel}
+                  disabled={saving}
+                  style={{
+                    flex: 1,
+                    background: '#6b7280',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '8px 16px',
+                    fontSize: 14,
+                    fontWeight: 'bold',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    opacity: saving ? 0.7 : 1
+                  }}
+                >
+                  ❌ キャンセル
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ 
+              padding: '12px 16px', 
+              background: '#f9fafb', 
+              border: '1px solid #e5e7eb', 
+              borderRadius: 8, 
+              color: '#374151' 
+            }}>
+              {userProfile.preferredGrade || '小学生'}
+            </div>
+          )}
+        </div>
+
+        {saveMessage && (
+          <div style={{ 
+            marginBottom: 16, 
+            padding: '8px 12px', 
+            background: saveMessage.includes('失敗') ? '#fee2e2' : '#d1fae5',
+            color: saveMessage.includes('失敗') ? '#dc2626' : '#059669',
+            borderRadius: 6,
+            fontSize: 14,
+            textAlign: 'center'
+          }}>
+            {saveMessage}
+          </div>
+        )}
+
+        <div style={{ textAlign: 'center' }}>
+          <button 
+            onClick={() => setCurrentView('question')}
+            style={{
+              background: '#4f46e5',
+              color: 'white',
+              border: 'none',
+              borderRadius: 8,
+              padding: '12px 24px',
+              fontSize: 16,
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              transition: 'background-color 0.2s'
+            }}
+            onMouseOver={(e) => e.target.style.background = '#4338ca'}
+            onMouseOut={(e) => e.target.style.background = '#4f46e5'}
+          >
+            質問メニューに戻る
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 function App() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
@@ -70,18 +271,28 @@ function App() {
   const [subject, setSubject] = useState("数学"); // 科目選択用
   const [expandedId, setExpandedId] = useState(null);
   const [currentAnswerChunks, setCurrentAnswerChunks] = useState([]); // 分割表示用
-  const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
-  const [user, setUser] = useState(null); // ログインユーザ情報
+  const [currentChunkIndex, setCurrentChunkIndex] = useState(0);  const [user, setUser] = useState(null); // ログインユーザ情報
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [nickname, setNickname] = useState(""); // ニックネーム
   const [authMode, setAuthMode] = useState("login"); // "login" or "register"
-  const [authError, setAuthError] = useState("");
-  const [rag_summary, setRag_summary] = useState(""); // RAG要約
+  const [authError, setAuthError] = useState("");  const [rag_summary, setRag_summary] = useState(""); // RAG要約
   const [imageData, setImageData] = useState(null); // 画像データ保持
   const [scrollToFollowup, setScrollToFollowup] = useState(false);
+  
+  // 新しい状態管理
+  const [currentView, setCurrentView] = useState("question"); // "question", "history", "contact", "profile"
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [sortBy, setSortBy] = useState("subject"); // "subject"のみ
+  const [subjectFilter, setSubjectFilter] = useState("all"); // 科目フィルター
+  const [userProfile, setUserProfile] = useState({ // ユーザープロファイル
+    name: "",
+    nickname: "", // ニックネーム追加
+    weakSubjects: [],
+    preferredGrade: "小学生"
+  });
   const [imageLoading, setImageLoading] = useState(false);
   const [imageLoadedMsg, setImageLoadedMsg] = useState("");
-  const [showContact, setShowContact] = useState(false); // お問い合わせフォーム表示制御
   const [registerMsg, setRegisterMsg] = useState(""); // 新規登録メッセージ用ステート
 
   // Firebase初期化
@@ -94,7 +305,6 @@ function App() {
       });
     }
   }, []);
-
   // メールアドレスでログイン/新規登録
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -106,7 +316,25 @@ function App() {
         setUser(res.user);
       } else {
         const res = await firebase.auth().createUserWithEmailAndPassword(email, password);
+        
+        // 新規登録時にニックネームを保存
+        if (nickname.trim()) {
+          const profileData = {
+            name: "",
+            nickname: nickname.trim(),
+            weakSubjects: [],
+            preferredGrade: "小学生"
+          };
+          // Firestoreにプロファイルを保存
+          try {
+            await saveUserProfile(profileData, res.user.uid);
+          } catch (profileError) {
+            console.error('プロファイル保存エラー:', profileError);
+          }
+        }
+        
         setRegisterMsg("新規登録しました！ログインしてね！"); // 新規登録時にメッセージ表示
+        setNickname(""); // ニックネームをクリア
         // 新規登録後は自動ログインしないのでsetUserは呼ばない
       }
     } catch (err) {
@@ -129,13 +357,13 @@ function App() {
       }
     });
   }, []);
-
   // ログアウト処理
   const handleLogout = async () => {
     await firebase.auth().signOut();
     setUser(null);
     setEmail("");
     setPassword("");
+    setNickname(""); // ニックネームもクリア
     setCurrentThread({ question: '', answer: '', thread: [], grade: '小学生', subject: '数学', createdAt: '' });
     setCurrentAnswerChunks([]);
     setFollowupList([]);
@@ -145,9 +373,7 @@ function App() {
     setImageData(null);
     setImageLoadedMsg("");
     setFollowupImageData && setFollowupImageData(null);
-  };
-
-  // --- Firestoreから履歴を取得 ---
+  };// --- Firestoreから履歴を取得 ---
   const fetchHistory = async (uid) => {
     if (!uid) return;
     try {
@@ -163,6 +389,7 @@ function App() {
               answer: doc.fields.answer?.stringValue || '',
               createdAt: doc.fields.createdAt?.stringValue || doc.fields.createdAt?.timestampValue || '',
               grade: doc.fields.grade?.stringValue || '',
+              subject: doc.fields.subject?.stringValue || '数学', // 科目情報を追加
               uid: doc.fields.uid?.stringValue || '',
               thread: threadArr.map(t => ({
                 question: t.mapValue.fields.q.stringValue,
@@ -172,19 +399,98 @@ function App() {
             };
           })
           // 修正: threadが空でもquestion/answerがあれば履歴に含める
-          .filter(item => item.uid === uid && item.question && item.answer)
-          .sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
-        setHistory(historyArr);
+          .filter(item => item.uid === uid && item.question && item.answer);
+        
+        // ソート処理
+        const sortedHistory = sortHistory(historyArr);
+        setHistory(sortedHistory);
       } else {
         setHistory([]);
       }
     } catch (e) { setHistory([]); }
   };
+  // 履歴のソート処理（科目別、日付は常に新しい順）
+  const sortHistory = (historyArray) => {
+    return historyArray.sort((a, b) => {
+      // まず科目でソート
+      const subjectComparison = a.subject.localeCompare(b.subject);
+      if (subjectComparison !== 0) {
+        return subjectComparison;
+      }
+      // 同じ科目の場合は日付の新しい順（降順）
+      return b.createdAt > a.createdAt ? 1 : -1;
+    });
+  };
 
+  // ソート条件が変わった時に履歴を再ソート
   useEffect(() => {
+    if (history.length > 0) {
+      const sortedHistory = sortHistory([...history]);
+      setHistory(sortedHistory);
+    }
+  }, [sortBy]);
+  // --- ユーザープロファイルを取得 ---
+  const fetchUserProfile = async (uid) => {
+    if (!uid) return;
+    try {
+      const res = await axios.get(`${FIRESTORE_API_URL}/userProfiles/${uid}`);
+      if (res.data.fields) {
+        const profile = {
+          name: res.data.fields.name?.stringValue || "",
+          nickname: res.data.fields.nickname?.stringValue || "", // ニックネーム追加
+          weakSubjects: res.data.fields.weakSubjects?.arrayValue?.values?.map(v => v.stringValue) || [],
+          preferredGrade: res.data.fields.preferredGrade?.stringValue || "小学生"
+        };
+        setUserProfile(profile);
+        setGrade(profile.preferredGrade); // 学年を設定
+      }
+    } catch (e) {
+      // プロファイルが存在しない場合は初期値のまま
+      console.log('ユーザープロファイルが見つかりません');
+    }
+  };
+  // --- ユーザープロファイルを保存 ---
+  const saveUserProfile = async (profile, uid = null) => {
+    const targetUid = uid || user?.uid;
+    if (!targetUid) return;
+    try {
+      const data = {
+        fields: {
+          name: { stringValue: profile.name || "" },
+          nickname: { stringValue: profile.nickname || "" }, // ニックネーム追加
+          weakSubjects: { 
+            arrayValue: { 
+              values: (profile.weakSubjects || []).map(s => ({ stringValue: s })) 
+            } 
+          },
+          preferredGrade: { stringValue: profile.preferredGrade || "小学生" },
+          updatedAt: { timestampValue: new Date().toISOString() }
+        }
+      };
+      await axios.patch(`${FIRESTORE_API_URL}/userProfiles/${targetUid}`, data);
+      setUserProfile(profile);
+    } catch (e) {
+      console.error('プロファイル保存エラー:', e);
+    }
+  };useEffect(() => {
     if (!user) return;
     fetchHistory(user.uid);
+    fetchUserProfile(user.uid);
   }, [user]);
+
+  // 時間ごとの挨拶を取得する関数
+  const getTimeBasedGreeting = () => {
+    const now = new Date();
+    const hour = now.getHours();
+    
+    if (hour >= 0 && hour < 11) {
+      return 'おはようございます';
+    } else if (hour >= 11 && hour < 17) {
+      return 'こんにちは';
+    } else {
+      return 'こんばんは';
+    }
+  };
 
   // 進行中チャット（1スレッド分）をローカルで管理
   const [currentThread, setCurrentThread] = useState({
@@ -227,20 +533,82 @@ function App() {
     setCurrentChunkIndex(0);
     setFollowupList([]);
     // --- ここで数式整形 ---
-    const q = formatMathInput(suggestText || question);
-    // --- 科目ごとにプロンプト最適化 ---
-    let subjectPrompt = "";
-    if (subject === "数学") {
-      subjectPrompt = "あなたは親切な数学の家庭教師です。数式や途中式を分かりやすく説明し、図やグラフも活用して指導してください。";
-    } else if (subject === "英語") {
-      subjectPrompt = "あなたは親切な英語の家庭教師です。英文法や単語の意味、例文を分かりやすく説明してください。";
-    } else if (subject === "理科") {
-      subjectPrompt = "あなたは親切な理科の家庭教師です。現象や用語を分かりやすく説明してください。";
-    } else if (subject === "社会") {
-      subjectPrompt = "あなたは親切な社会の家庭教師です。歴史や地理、公民の内容を分かりやすく説明してください。";
-    } else if (subject === "国語") {
-      subjectPrompt = "あなたは親切な国語の家庭教師です。文章の意味や読解のコツを分かりやすく説明してください。";
-    }
+    const q = formatMathInput(suggestText || question);    // --- 科目ごと・学年ごとにプロンプト最適化（段階的回答・粒度調整・口調変化） ---
+    const getPersonalizedPrompt = () => {
+      // 学年に応じた基本的な口調と粒度設定
+      let gradeStyle = "";
+      let stepDetail = "";
+      
+      switch(grade) {
+        case "小学生":
+          gradeStyle = "とても優しく、分かりやすい言葉で説明してね。難しい言葉は使わないでください。";
+          stepDetail = "一つ一つの手順をゆっくり、詳しく説明してください。";
+          break;
+        case "中学生":
+          gradeStyle = "丁寧で親しみやすい口調で説明してください。時々励ましの言葉も入れてくださいね。";
+          stepDetail = "重要なポイントを段階的に、理由も含めて説明してください。";
+          break;
+        case "高校生":
+          gradeStyle = "しっかりとした説明をしつつ、親近感のある口調で話してください。";
+          stepDetail = "論理的な流れを重視して、各段階の根拠を明確に示してください。";
+          break;
+        default:
+          gradeStyle = "適切なレベルで丁寧に説明してください。";
+          stepDetail = "段階的に分かりやすく説明してください。";
+      }      // ユーザー名があれば個人的な挨拶を追加
+      const personalGreeting = userProfile.nickname ? 
+        `こんにちは、${userProfile.nickname}さん！` : 
+        userProfile.name ?
+          `こんにちは、${userProfile.name}さん！` : "こんにちは！";
+
+      // 苦手分野への配慮
+      const weakSubjectCare = userProfile.weakSubjects.includes(subject) ?
+        `${subject}は苦手分野のようですね。特に丁寧に説明しますので、分からないことがあったら遠慮なく聞いてくださいね。` : "";
+
+      // 科目別の専門的なガイダンス
+      let subjectGuidance = "";
+      switch(subject) {
+        case "数学":
+          subjectGuidance = `数式や計算は必ずLaTeX形式で記述し、$$で囲んでください。途中式も段階的に示し、なぜその計算をするのかも説明してください。`;
+          break;
+        case "英語":
+          subjectGuidance = "英文法のルールを説明する時は、例文を多用し、なぜそのルールになるのかも教えてください。";
+          break;
+        case "理科":
+          subjectGuidance = "現象や概念を説明する時は、身近な例を挙げて、原理から応用まで段階的に教えてください。";
+          break;
+        case "社会":
+          subjectGuidance = "歴史や地理の内容は、背景→出来事→影響の流れで段階的に説明し、覚えやすい関連付けも教えてください。";
+          break;
+        case "国語":
+          subjectGuidance = "文章読解のコツや文法は、具体例を示しながら、段階的に理解を深められるよう説明してください。";
+          break;
+      }
+
+      return `${personalGreeting}あなたは親切で経験豊富な${subject}の家庭教師です。
+
+【指導方針】
+1. 段階的な説明：答えを最初から全て示さず、まず概要やヒントから始めて、学習者のペースに合わせて徐々に詳しく説明する
+2. 理解度確認：各段階で「ここまで理解できましたか？」などの確認を入れる
+3. 個別対応：${gradeStyle}
+4. 詳細度調整：${stepDetail}
+
+${weakSubjectCare}
+
+【具体的な指導内容】
+${subjectGuidance}
+
+【回答の構成例】
+1. まず問題の概要と解き方の方針を簡潔に説明
+2. 必要な基礎知識があるか確認
+3. 段階的に解法を説明（一度に全て説明せず、重要なポイントごとに区切る）
+4. 各段階で理解を確認する質問を投げかける
+5. 最後に全体のまとめと類似問題への応用方法を示す
+
+学習者が「続きを教えて」「もっと詳しく」などと言った時に、次の段階に進んでください。`;
+    };
+
+    let subjectPrompt = getPersonalizedPrompt();
     // --- 他科目履歴が存在する場合は科目切り替えを促す ---
     const prevSubjects = (currentThread.thread || []).map(t => t.subject).filter(s => s && s !== subject);
     if (prevSubjects.length > 0) {
@@ -602,7 +970,6 @@ function App() {
   const handleHistoryClick = (item) => {
     setExpandedId(expandedId === item.id ? null : item.id);
   };
-
   // 履歴からチャットを継続する
   const handleContinueThread = (item) => {
     setCurrentThread({
@@ -620,6 +987,8 @@ function App() {
     setQuestion("");
     setAnswer("");
     setError("");
+      // 質問メニューに切り替えてスクロール要求
+    setCurrentView('question');
     setScrollToFollowup(true); // 追加: followupフォームへスクロール要求
   };
 
@@ -632,36 +1001,150 @@ function App() {
           {/* 新規登録メッセージ表示 */}
           {registerMsg && (
             <div style={{ color: '#16a34a', fontWeight: 'bold', marginBottom: 12, fontSize: 16 }}>{registerMsg}</div>
-          )}
-          <AuthForm
+          )}          <AuthForm
             authMode={authMode}
             setAuthMode={setAuthMode}
             email={email}
             setEmail={setEmail}
             password={password}
             setPassword={setPassword}
+            nickname={nickname}
+            setNickname={setNickname}
             handleAuth={handleAuth}
             authError={authError}
           />
         </header>
       </div>
     );
-  }
-
-  return (
+  }  return (
     <div className="App">
       <header className="App-header">
-        <h1>AI家庭教師「まなび先生」</h1>
-        {/* 案内メニュー */}
-        <nav className="main-menu">
-          <button onClick={() => setShowContact(false)} className={!showContact ? 'active' : ''}>質問メニュー</button>
-          <button onClick={() => setShowContact(true)} className={showContact ? 'active' : ''}>お問い合わせ</button>
-          <button onClick={handleLogout} style={{ marginLeft: 'auto', background: '#e0e7ff', color: '#222', fontWeight: 'bold', borderRadius: 6, border: 'none', padding: '8px 18px', fontSize: 15, cursor: 'pointer' }}>ログアウト</button>
-        </nav>
-        {showContact ? (
-          <ContactForm onClose={() => setShowContact(false)} user={user} />
-        ) : (
+        {/* 上部のメニューバー */}
+        <div style={{ display: 'flex', alignItems: 'center', width: '100%', marginBottom: 16 }}>
+          {/* 左側のプルダウンメニュー */}
+          <div style={{ position: 'relative' }}>            <button 
+              onClick={() => setDropdownOpen(!dropdownOpen)}
+              className="main-menu-button"
+            >
+              ☰ メニュー
+            </button>
+            {dropdownOpen && (              <div style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                background: 'white',
+                border: '1px solid #e5e7eb',
+                borderRadius: 8,
+                boxShadow: '0 4px 12px rgba(79, 70, 229, 0.15)',
+                zIndex: 1000,
+                minWidth: 180,
+                marginTop: 4
+              }}><button 
+                  onClick={() => { setCurrentView('question'); setDropdownOpen(false); }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '12px 16px',
+                    border: 'none',
+                    background: currentView === 'question' ? '#e0e7ff' : 'transparent',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: currentView === 'question' ? '#4f46e5' : '#374151'
+                  }}
+                >
+                  📝 質問メニュー
+                </button>
+                <button 
+                  onClick={() => { setCurrentView('history'); setDropdownOpen(false); }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '12px 16px',
+                    border: 'none',
+                    background: currentView === 'history' ? '#e0e7ff' : 'transparent',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: currentView === 'history' ? '#4f46e5' : '#374151'
+                  }}
+                >
+                  📚 履歴
+                </button>                <button 
+                  onClick={() => { setCurrentView('contact'); setDropdownOpen(false); }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '12px 16px',
+                    border: 'none',
+                    background: currentView === 'contact' ? '#e0e7ff' : 'transparent',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: currentView === 'contact' ? '#4f46e5' : '#374151'
+                  }}
+                >
+                  📧 お問い合わせ
+                </button>
+                <button 
+                  onClick={() => { setCurrentView('profile'); setDropdownOpen(false); }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '12px 16px',
+                    border: 'none',
+                    background: currentView === 'profile' ? '#e0e7ff' : 'transparent',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: currentView === 'profile' ? '#4f46e5' : '#374151'
+                  }}
+                >
+                  👤 プロフィール
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* ログアウトボタン（メニューボタンの右側） */}
+          <button 
+            onClick={handleLogout} 
+            style={{ 
+              background: '#e0e7ff', 
+              color: '#222', 
+              fontWeight: 'bold', 
+              borderRadius: 6, 
+              border: 'none', 
+              padding: '8px 18px', 
+              fontSize: 15, 
+              cursor: 'pointer',
+              marginLeft: 12
+            }}
+          >
+            ログアウト
+          </button>
+        </div>        {/* タイトル（メニューバーの下） */}
+        <div style={{ width: '100%', textAlign: 'center', marginBottom: 20 }}>
+          <h1 style={{ margin: 0 }}>
+            AI家庭教師「まなび先生」            <div style={{ fontSize: '0.6em', fontWeight: 'normal', color: '#666', marginTop: 4 }}>
+              {userProfile.nickname ? 
+                `${getTimeBasedGreeting()}、${userProfile.nickname}さん！` : 
+                userProfile.name ?
+                  `${getTimeBasedGreeting()}、${userProfile.name}さん！` :
+                  `${getTimeBasedGreeting()}！`
+              }
+            </div>
+          </h1>
+        </div>
+
+        {/* 現在のビューに応じた内容を表示 */}
+        {currentView === 'question' && (
           <div className="form-center-wrap">
+            {/* 質問フォーム */}
             <form onSubmit={handleSubmit} className="form-center" style={{ width: '100%' }}>
               <div style={{ marginBottom: 8, textAlign: 'left', color: '#888', fontSize: 14 }}>
                 効果的な質問例:「この問題の考え方を教えて」「途中式を説明して」「どこが分からないか具体的に教えて」など。
@@ -722,52 +1205,112 @@ function App() {
               </div>
               <button type="submit" disabled={loading || !question} style={{ marginTop: 8, width: 180, alignSelf: 'center' }}>
                 {loading ? 'AIが考え中...' : '質問する'}
-              </button>
-            </form>
+              </button>            </form>
+            
+            {/* --- AI回答・追加質問UI --- */}
+            {currentThread.question && (
+              <ChatBox
+                currentThread={currentThread}
+                currentAnswerChunks={currentAnswerChunks}
+                currentChunkIndex={currentChunkIndex}
+                setCurrentChunkIndex={setCurrentChunkIndex}
+                followupText={followupText}
+                setFollowupText={setFollowupText}
+                followupLoading={followupLoading}
+                handleFollowup={handleFollowup}
+                handleImageInputFollowup={handleImageInputFollowup}
+                handleSpeechInputFollowup={handleSpeechInputFollowup}
+                handleEndChat={handleEndChat}
+                error={error}
+                loading={loading}
+                question={question}
+                setQuestion={setQuestion}
+                grade={grade}
+                setGrade={setGrade}
+                handleSubmit={handleSubmit}
+                handleImageInput={handleImageInput}
+                handleSpeechInput={handleSpeechInput}
+                showPromptHelp={showPromptHelp}
+                followupError={followupError}
+                imageData={imageData}
+                setImageData={setImageData}
+                scrollToFollowup={scrollToFollowup}
+                resetScrollToFollowup={() => setScrollToFollowup(false)}
+                imageLoading={imageLoading}
+                imageLoadedMsg={imageLoadedMsg}
+                followupImageData={followupImageData}
+                setFollowupImageData={setFollowupImageData}
+              />
+            )}
           </div>
-        )}
-        {/* --- AI回答・追加質問UI --- */}
-        {currentThread.question && (
-          <ChatBox
-            currentThread={currentThread}
-            currentAnswerChunks={currentAnswerChunks}
-            currentChunkIndex={currentChunkIndex}
-            setCurrentChunkIndex={setCurrentChunkIndex}
-            followupText={followupText}
-            setFollowupText={setFollowupText}
-            followupLoading={followupLoading}
-            handleFollowup={handleFollowup}
-            handleImageInputFollowup={handleImageInputFollowup}
-            handleSpeechInputFollowup={handleSpeechInputFollowup}
-            handleEndChat={handleEndChat}
-            error={error}
-            loading={loading}
-            question={question}
-            setQuestion={setQuestion}
-            grade={grade}
+        )}        {/* 履歴ビュー */}
+        {currentView === 'history' && (
+          <div>
+            {/* 科目フィルター */}
+            <div style={{ marginBottom: 20, display: 'flex', gap: 15, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label style={{ fontWeight: 'bold', color: '#374151' }}>科目で絞り込み:</label>
+                <select 
+                  value={subjectFilter} 
+                  onChange={e => setSubjectFilter(e.target.value)}
+                  style={{ 
+                    fontSize: 14, 
+                    padding: '6px 12px', 
+                    borderRadius: 6, 
+                    border: '1px solid #d1d5db',
+                    background: 'white',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="all">すべての科目</option>
+                  <option value="数学">数学</option>
+                  <option value="英語">英語</option>
+                  <option value="理科">理科</option>
+                  <option value="社会">社会</option>
+                  <option value="国語">国語</option>
+                </select>
+              </div>
+              <span style={{ fontSize: 12, color: '#6b7280' }}>
+                {subjectFilter === 'all' ? '全科目を表示中' : `${subjectFilter}の履歴のみ表示中`}
+              </span>            </div>
+            
+            {(() => {
+              const filteredHistory = subjectFilter === 'all' ? history : history.filter(item => item.subject === subjectFilter);
+              return filteredHistory.length > 0 ? (
+                <HistoryList
+                  history={filteredHistory}
+                  expandedId={expandedId}
+                  handleHistoryClick={handleHistoryClick}
+                  handleContinueThread={handleContinueThread}
+                />
+              ) : (
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '40px 20px', 
+                  color: '#6b7280',
+                  fontSize: 16
+                }}>
+                  {subjectFilter === 'all' ? 
+                    '履歴がありません。質問をして履歴を作成しましょう！' : 
+                    `${subjectFilter}の履歴がありません。`
+                  }
+                </div>
+              );
+            })()}
+          </div>
+        )}        {/* お問い合わせビュー */}
+        {currentView === 'contact' && (
+          <ContactForm onClose={() => setCurrentView('question')} user={user} />
+        )}        {/* プロフィールビュー */}
+        {currentView === 'profile' && (
+          <ProfileView
+            user={user}
+            userProfile={userProfile}
+            setCurrentView={setCurrentView}
+            saveUserProfile={saveUserProfile}
             setGrade={setGrade}
-            handleSubmit={handleSubmit}
-            handleImageInput={handleImageInput}
-            handleSpeechInput={handleSpeechInput}
-            showPromptHelp={showPromptHelp}
-            followupError={followupError}
-            imageData={imageData}
-            setImageData={setImageData}
-            scrollToFollowup={scrollToFollowup}
-            resetScrollToFollowup={() => setScrollToFollowup(false)}
-            imageLoading={imageLoading}
-            imageLoadedMsg={imageLoadedMsg}
-            followupImageData={followupImageData}
-            setFollowupImageData={setFollowupImageData}
           />
         )}
-        {/* 履歴リスト */}
-        <HistoryList
-          history={history}
-          expandedId={expandedId}
-          handleHistoryClick={handleHistoryClick}
-          handleContinueThread={handleContinueThread}
-        />
       </header>
     </div>
   );

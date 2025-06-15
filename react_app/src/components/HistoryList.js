@@ -13,9 +13,8 @@ function HistoryList({ history, expandedId, handleHistoryClick, handleContinueTh
             <button style={{ float: 'right', fontSize: 13, background: 'none', border: 'none', color: '#4f46e5', cursor: 'pointer' }}>
               {expandedId === item.id ? '▲ 閉じる' : '▼ 展開'}
             </button>
-          </div>
-          <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>
-            日時: {item.createdAt && new Date(item.createdAt).toLocaleString()} / 学年: {item.grade || '未設定'}
+          </div>          <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>
+            日時: {item.createdAt && new Date(item.createdAt).toLocaleString()} / 学年: {item.grade || '未設定'} / 科目: {item.subject || '数学'}
           </div>
           {expandedId === item.id && (
             <div className="answer-detail" style={{ marginTop: 20, marginBottom: 20 }}>

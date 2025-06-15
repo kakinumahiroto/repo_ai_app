@@ -62,7 +62,9 @@ if (!API_URL) {
 // プロフィール画面コンポーネント
 const ProfileView = ({ user, userProfile, setCurrentView, saveUserProfile, setGrade }) => {
   const [editMode, setEditMode] = useState(false);
+  const [nicknameEditMode, setNicknameEditMode] = useState(false);
   const [tempGrade, setTempGrade] = useState(userProfile.preferredGrade || '小学生');
+  const [tempNickname, setTempNickname] = useState(userProfile.nickname || '');
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
 
@@ -87,9 +89,34 @@ const ProfileView = ({ user, userProfile, setCurrentView, saveUserProfile, setGr
     }
   };
 
+  const handleNicknameSave = async () => {
+    setSaving(true);
+    setSaveMessage('');
+    try {
+      const updatedProfile = {
+        ...userProfile,
+        nickname: tempNickname.trim()
+      };
+      await saveUserProfile(updatedProfile);
+      setNicknameEditMode(false);
+      setSaveMessage('ニックネームを保存しました！');
+      setTimeout(() => setSaveMessage(''), 3000);
+    } catch (error) {
+      setSaveMessage('保存に失敗しました。もう一度お試しください。');
+      setTimeout(() => setSaveMessage(''), 3000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleCancel = () => {
     setTempGrade(userProfile.preferredGrade || '小学生');
     setEditMode(false);
+  };
+
+  const handleNicknameCancel = () => {
+    setTempNickname(userProfile.nickname || '');
+    setNicknameEditMode(false);
   };
 
   return (
@@ -110,21 +137,97 @@ const ProfileView = ({ user, userProfile, setCurrentView, saveUserProfile, setGr
           }}>
             {user?.email || 'メールアドレスが取得できません'}
           </div>
-        </div>
-
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: 8, color: '#374151' }}>
-            🏷️ ニックネーム
-          </label>
-          <div style={{ 
-            padding: '12px 16px', 
-            background: '#f9fafb', 
-            border: '1px solid #e5e7eb', 
-            borderRadius: 8, 
-            color: '#374151' 
-          }}>
-            {userProfile.nickname || 'ニックネームが設定されていません'}
+        </div>        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <label style={{ fontWeight: 'bold', color: '#374151' }}>
+              🏷️ ニックネーム
+            </label>
+            {!nicknameEditMode && (
+              <button
+                onClick={() => setNicknameEditMode(true)}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #d1d5db',
+                  borderRadius: 4,
+                  padding: '4px 8px',
+                  fontSize: 12,
+                  color: '#4f46e5',
+                  cursor: 'pointer'
+                }}
+              >
+                ✏️ 編集
+              </button>
+            )}
           </div>
+          
+          {nicknameEditMode ? (
+            <div>
+              <input
+                type="text"
+                value={tempNickname}
+                onChange={(e) => setTempNickname(e.target.value)}
+                placeholder="ニックネームを入力"
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  border: '2px solid #4f46e5',
+                  borderRadius: 8,
+                  fontSize: 16,
+                  marginBottom: 12,
+                  boxSizing: 'border-box'
+                }}
+              />
+              
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={handleNicknameSave}
+                  disabled={saving}
+                  style={{
+                    flex: 1,
+                    background: '#10b981',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '8px 16px',
+                    fontSize: 14,
+                    fontWeight: 'bold',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    opacity: saving ? 0.7 : 1
+                  }}
+                >
+                  {saving ? '保存中...' : '💾 保存'}
+                </button>
+                <button
+                  onClick={handleNicknameCancel}
+                  disabled={saving}
+                  style={{
+                    flex: 1,
+                    background: '#6b7280',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '8px 16px',
+                    fontSize: 14,
+                    fontWeight: 'bold',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    opacity: saving ? 0.7 : 1
+                  }}
+                >
+                  ❌ キャンセル
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ 
+              padding: '12px 16px', 
+              background: '#f9fafb', 
+              border: '1px solid #e5e7eb', 
+              borderRadius: 8, 
+              color: '#374151' 
+            }}>
+              {userProfile.nickname || 'ニックネームが設定されていません'}
+            </div>
+          )}
         </div>
 
         <div style={{ marginBottom: 24 }}>
@@ -313,24 +416,21 @@ function App() {
     try {
       if (authMode === "login") {
         const res = await firebase.auth().signInWithEmailAndPassword(email, password);
-        setUser(res.user);
-      } else {
+        setUser(res.user);      } else {
         const res = await firebase.auth().createUserWithEmailAndPassword(email, password);
         
-        // 新規登録時にニックネームを保存
-        if (nickname.trim()) {
-          const profileData = {
-            name: "",
-            nickname: nickname.trim(),
-            weakSubjects: [],
-            preferredGrade: "小学生"
-          };
-          // Firestoreにプロファイルを保存
-          try {
-            await saveUserProfile(profileData, res.user.uid);
-          } catch (profileError) {
-            console.error('プロファイル保存エラー:', profileError);
-          }
+        // 新規登録時にプロファイルを保存（デフォルト学年設定）
+        const profileData = {
+          name: "",
+          nickname: nickname.trim(),
+          weakSubjects: [],
+          preferredGrade: "小学生" // デフォルト学年を設定
+        };
+        // Firestoreにプロファイルを保存
+        try {
+          await saveUserProfile(profileData, res.user.uid);
+        } catch (profileError) {
+          console.error('プロファイル保存エラー:', profileError);
         }
         
         setRegisterMsg("新規登録しました！ログインしてね！"); // 新規登録時にメッセージ表示
@@ -428,8 +528,7 @@ function App() {
       const sortedHistory = sortHistory([...history]);
       setHistory(sortedHistory);
     }
-  }, [sortBy]);
-  // --- ユーザープロファイルを取得 ---
+  }, [sortBy]);  // --- ユーザープロファイルを取得 ---
   const fetchUserProfile = async (uid) => {
     if (!uid) return;
     try {
@@ -445,8 +544,20 @@ function App() {
         setGrade(profile.preferredGrade); // 学年を設定
       }
     } catch (e) {
-      // プロファイルが存在しない場合は初期値のまま
-      console.log('ユーザープロファイルが見つかりません');
+      // プロファイルが存在しない場合は初期値で作成
+      console.log('ユーザープロファイルが見つかりません。初期値で作成します。');
+      const defaultProfile = {
+        name: "",
+        nickname: "",
+        weakSubjects: [],
+        preferredGrade: "小学生"
+      };
+      try {
+        await saveUserProfile(defaultProfile, uid);
+        setGrade(defaultProfile.preferredGrade);
+      } catch (createError) {
+        console.error('初期プロファイル作成エラー:', createError);
+      }
     }
   };
   // --- ユーザープロファイルを保存 ---
@@ -1144,20 +1255,11 @@ ${subjectGuidance}
         {/* 現在のビューに応じた内容を表示 */}
         {currentView === 'question' && (
           <div className="form-center-wrap">
-            {/* 質問フォーム */}
-            <form onSubmit={handleSubmit} className="form-center" style={{ width: '100%' }}>
+            {/* 質問フォーム */}            <form onSubmit={handleSubmit} className="form-center" style={{ width: '100%' }}>
               <div style={{ marginBottom: 8, textAlign: 'left', color: '#888', fontSize: 14 }}>
                 効果的な質問例:「この問題の考え方を教えて」「途中式を説明して」「どこが分からないか具体的に教えて」など。
               </div>
-              <div style={{ marginBottom: 8, textAlign: 'center' }}>
-                <label style={{ fontWeight: 'bold', marginRight: 8 }}>学年:</label>
-                <select value={grade} onChange={e => setGrade(e.target.value)} style={{ fontSize: 16, padding: 4 }}>
-                  <option value="小学生">小学生</option>
-                  <option value="中学生">中学生</option>
-                  <option value="高校生">高校生</option>
-                </select>
-              </div>
-              {/* --- 科目選択欄追加 --- */}
+              {/* --- 科目選択欄 --- */}
               <div style={{ marginBottom: 8, textAlign: 'center' }}>
                 <label style={{ fontWeight: 'bold', marginRight: 8 }}>科目:</label>
                 <select value={subject} onChange={e => setSubject(e.target.value)} style={{ fontSize: 16, padding: 4 }}>

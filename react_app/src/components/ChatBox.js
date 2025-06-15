@@ -56,7 +56,7 @@ function ChatBox({
         <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {/* まず最初の質問・AI回答を交互に表示 */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-            <div className="followup-bubble-user">あなた: {currentThread.question}</div>
+            <div className="followup-bubble-user">あなた: <FormattedText text={currentThread.question} /></div>
             {/* 画像が選択されている場合はカメラアイコンを表示 */}
             {imageData && (
               <div style={{ fontSize: 28, marginTop: 4, color: '#4f46e5' }} title="画像が添付されています">📷</div>
@@ -69,7 +69,7 @@ function ChatBox({
           {currentThread.thread.length > 0 && currentThread.thread.map((item, idx) => (
             <React.Fragment key={idx}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                <div className="followup-bubble-user">あなた: {item.question}</div>
+                <div className="followup-bubble-user">あなた: <FormattedText text={item.question} /></div>
                 {/* 画像が添付されている場合はカメラアイコンを表示（将来拡張用） */}
                 {item.imageData && (
                   <div style={{ fontSize: 28, marginTop: 4, color: '#4f46e5' }} title="画像が添付されています">📷</div>

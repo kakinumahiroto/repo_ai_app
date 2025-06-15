@@ -1,16 +1,24 @@
 const functions = require('firebase-functions');
 const nodemailer = require('nodemailer');
-
-// Gmail送信用トランスポート
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'kahiroto222@gmail.com',
-    pass: functions.config().gmail && functions.config().gmail.password,
-  },
-});
+require('dotenv').config();
 
 exports.contact = functions.https.onRequest(async (req, res) => {
+  const gmailUser = process.env.GMAIL_USER || 'kahiroto222@gmail.com';
+  const gmailPass = process.env.GMAIL_PASS;
+
+  if (!gmailUser || !gmailPass) {
+    res.status(500).send('メール認証情報が未設定です');
+    return;
+  }
+
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: gmailUser,
+      pass: gmailPass,
+    },
+  });
+
   res.set('Access-Control-Allow-Origin', '*');
   if (req.method === 'OPTIONS') {
     res.set('Access-Control-Allow-Methods', 'POST');
@@ -23,8 +31,8 @@ exports.contact = functions.https.onRequest(async (req, res) => {
   if (!subject || !body) return res.status(400).send('Missing fields');
   try {
     await transporter.sendMail({
-      from: 'kahiroto222@gmail.com',
-      to: 'kahiroto222@gmail.com',
+      from: gmailUser,
+      to: gmailUser,
       subject: `[お問い合わせ] ${subject}`,
       text: body,
     });

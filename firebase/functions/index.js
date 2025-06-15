@@ -251,6 +251,10 @@ exports.ragChat = functions.https.onRequest(async (req, res) => {
   }
 });
 
+// --- お問い合わせエンドポイント ---
+const contact = require('./contact');
+exports.contact = contact.contact;
+
 // Create and deploy your first functions
 // https://firebase.google.com/docs/functions/get-started
 

@@ -10,7 +10,7 @@
     "logs": "firebase functions:log"
   },
   "engines": {
-    "node": "22"
+    "node": "18"
   },
   "main": "index.js",
   "dependencies": {
@@ -19,7 +19,8 @@
     "dotenv": "^16.5.0",
     "firebase-admin": "11.11.1",
     "firebase-functions": "6.3.2",
-    "langchain": "0.0.190"
+    "langchain": "0.0.190",
+    "nodemailer": "^7.0.3"
   },
   "devDependencies": {
     "eslint": "^8.15.0",

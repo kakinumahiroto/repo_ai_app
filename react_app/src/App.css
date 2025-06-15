@@ -201,6 +201,16 @@ button:disabled {
   color: #4f46e5;
   margin-bottom: 2px;
   box-shadow: 0 1px 4px #dbeafe;
+  overflow-x: auto; /* 横スクロールを追加 */
+  word-wrap: break-word; /* 長い単語を折り返し */
+}
+
+/* ユーザー吹き出しのKaTeX数式スタイル - ディスプレイ数式のみ */
+.followup-bubble-user .katex-display {
+  font-size: 0.85em;
+  margin: 8px 0;
+  overflow-x: auto;
+  text-align: center;
 }
 
 .followup-bubble-ai {
@@ -212,6 +222,16 @@ button:disabled {
   margin-left: 8px;
   margin-top: 2px;
   box-shadow: 0 1px 4px #e0e7ff;
+  overflow-x: auto; /* 横スクロールを追加 */
+  word-wrap: break-word; /* 長い単語を折り返し */
+}
+
+/* KaTeX数式のスタイル調整 - ディスプレイ数式のみ */
+.followup-bubble-ai .katex-display {
+  font-size: 0.85em;
+  margin: 8px 0;
+  overflow-x: auto;
+  text-align: center;
 }
 
 form {

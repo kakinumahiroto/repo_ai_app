@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CONTACT_API_URL } from '../App';
 
-function ContactForm({ onClose }) {
+function ContactForm({ onClose, user }) {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
@@ -15,7 +15,10 @@ function ContactForm({ onClose }) {
     try {
       const res = await fetch(CONTACT_API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(user?.email ? { 'x-user-email': user.email } : {})
+        },
         body: JSON.stringify({ subject, body }),
       });
       if (!res.ok) throw new Error('送信に失敗しました');

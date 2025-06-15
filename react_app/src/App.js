@@ -659,7 +659,7 @@ function App() {
           <button onClick={handleLogout} style={{ marginLeft: 'auto', background: '#e0e7ff', color: '#222', fontWeight: 'bold', borderRadius: 6, border: 'none', padding: '8px 18px', fontSize: 15, cursor: 'pointer' }}>ログアウト</button>
         </nav>
         {showContact ? (
-          <ContactForm onClose={() => setShowContact(false)} />
+          <ContactForm onClose={() => setShowContact(false)} user={user} />
         ) : (
           <div className="form-center-wrap">
             <form onSubmit={handleSubmit} className="form-center" style={{ width: '100%' }}>

@@ -9,22 +9,45 @@ function AuthForm({
   setPassword,
   nickname,
   setNickname,
+  grade,
+  setGrade,
   handleAuth,
   authError
-}) {
-  return (
-    <form onSubmit={handleAuth} style={{ maxWidth: 360, margin: '40px auto', background: '#fff', borderRadius: 8, padding: 24, boxShadow: '0 2px 8px #bfcfff' }}>
-      <h2 style={{ marginBottom: 16 }}>{authMode === "login" ? "ログイン" : "新規登録"}</h2>
-      <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="メールアドレス" required style={{ width: '100%', marginBottom: 12, padding: 8, fontSize: 15 }} />
+}) {  return (
+    <form onSubmit={handleAuth} style={{ maxWidth: 360, margin: '40px auto', background: '#fff', borderRadius: 8, padding: 24, boxShadow: '0 2px 8px #bfcfff' }} className="auth-form">
+      <h2 style={{ marginBottom: 16, textAlign: 'center', color: '#374151' }}>{authMode === "login" ? "ログイン" : "新規登録"}</h2><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="メールアドレス" required style={{ width: '100%', marginBottom: 12, padding: 8, fontSize: 15 }} />
       <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="パスワード" required style={{ width: '100%', marginBottom: 12, padding: 8, fontSize: 15 }} />
       {authMode === "register" && (
-        <input 
-          type="text" 
-          value={nickname} 
-          onChange={e => setNickname(e.target.value)} 
-          placeholder="ニックネーム（任意）" 
-          style={{ width: '100%', marginBottom: 16, padding: 8, fontSize: 15 }} 
-        />
+        <>
+          <input 
+            type="text" 
+            value={nickname} 
+            onChange={e => setNickname(e.target.value)} 
+            placeholder="ニックネーム（任意）" 
+            style={{ width: '100%', marginBottom: 12, padding: 8, fontSize: 15 }} 
+          />
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 6, fontWeight: 'bold', color: '#374151', fontSize: 14 }}>
+              🎓 学年設定
+            </label>
+            <select
+              value={grade}
+              onChange={e => setGrade(e.target.value)}
+              style={{
+                width: '100%',
+                padding: 8,
+                fontSize: 15,
+                border: '1px solid #ccc',
+                borderRadius: 4,
+                backgroundColor: 'white'
+              }}
+            >
+              <option value="小学生">小学生</option>
+              <option value="中学生">中学生</option>
+              <option value="高校生">高校生</option>
+            </select>
+          </div>
+        </>
       )}
       {authMode === "login" && <div style={{ marginBottom: 16 }}></div>}
       <button type="submit" style={{ width: '100%', marginBottom: 8 }}>{authMode === "login" ? "ログイン" : "登録"}</button>

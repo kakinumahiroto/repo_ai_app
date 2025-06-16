@@ -375,11 +375,11 @@ function App() {
   const [expandedId, setExpandedId] = useState(null);
   const [currentAnswerChunks, setCurrentAnswerChunks] = useState([]); // 分割表示用
   const [currentChunkIndex, setCurrentChunkIndex] = useState(0);  const [user, setUser] = useState(null); // ログインユーザ情報
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");  const [password, setPassword] = useState("");
   const [nickname, setNickname] = useState(""); // ニックネーム
   const [authMode, setAuthMode] = useState("login"); // "login" or "register"
-  const [authError, setAuthError] = useState("");  const [rag_summary, setRag_summary] = useState(""); // RAG要約
+  const [authError, setAuthError] = useState("");
+  const [registerGrade, setRegisterGrade] = useState("小学生"); // 新規登録用学年const [rag_summary, setRag_summary] = useState(""); // RAG要約
   const [imageData, setImageData] = useState(null); // 画像データ保持
   const [scrollToFollowup, setScrollToFollowup] = useState(false);
   
@@ -418,23 +418,24 @@ function App() {
         const res = await firebase.auth().signInWithEmailAndPassword(email, password);
         setUser(res.user);      } else {
         const res = await firebase.auth().createUserWithEmailAndPassword(email, password);
-        
-        // 新規登録時にプロファイルを保存（デフォルト学年設定）
+          // 新規登録時にプロファイルを保存（デフォルト学年設定）
         const profileData = {
           name: "",
           nickname: nickname.trim(),
           weakSubjects: [],
-          preferredGrade: "小学生" // デフォルト学年を設定
+          preferredGrade: registerGrade // 選択した学年を使用
         };
         // Firestoreにプロファイルを保存
         try {
           await saveUserProfile(profileData, res.user.uid);
+          setGrade(registerGrade); // 現在の学年設定も更新
         } catch (profileError) {
           console.error('プロファイル保存エラー:', profileError);
         }
         
         setRegisterMsg("新規登録しました！ログインしてね！"); // 新規登録時にメッセージ表示
         setNickname(""); // ニックネームをクリア
+        setRegisterGrade("小学生"); // 学年もリセット
         // 新規登録後は自動ログインしないのでsetUserは呼ばない
       }
     } catch (err) {
@@ -461,9 +462,9 @@ function App() {
   const handleLogout = async () => {
     await firebase.auth().signOut();
     setUser(null);
-    setEmail("");
-    setPassword("");
+    setEmail("");    setPassword("");
     setNickname(""); // ニックネームもクリア
+    setRegisterGrade("小学生"); // 新規登録用学年もリセット
     setCurrentThread({ question: '', answer: '', thread: [], grade: '小学生', subject: '数学', createdAt: '' });
     setCurrentAnswerChunks([]);
     setFollowupList([]);
@@ -1111,8 +1112,9 @@ ${subjectGuidance}
           <h1>AI家庭教師「まなび先生」</h1>
           {/* 新規登録メッセージ表示 */}
           {registerMsg && (
-            <div style={{ color: '#16a34a', fontWeight: 'bold', marginBottom: 12, fontSize: 16 }}>{registerMsg}</div>
-          )}          <AuthForm
+            <div className="register-message">{registerMsg}</div>
+          )}
+          <AuthForm
             authMode={authMode}
             setAuthMode={setAuthMode}
             email={email}
@@ -1121,6 +1123,8 @@ ${subjectGuidance}
             setPassword={setPassword}
             nickname={nickname}
             setNickname={setNickname}
+            grade={registerGrade}
+            setGrade={setRegisterGrade}
             handleAuth={handleAuth}
             authError={authError}
           />

@@ -39,19 +39,17 @@ function ContactForm({ onClose, user }) {
         background: 'white',
         borderRadius: 12,
         boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-      }}>
-        <div style={{ color: '#16a34a', fontWeight: 'bold', marginBottom: 12 }}>お問い合わせを送信しました！</div>
-        <button onClick={onClose} style={{ 
-          marginTop: 8,
-          background: '#4f46e5',
-          color: 'white',
-          border: 'none',
-          borderRadius: 8,
-          padding: '12px 24px',
-          fontSize: 16,
-          fontWeight: 'bold',
-          cursor: 'pointer'
-        }}>閉じる</button>
+      }}>        <div style={{ color: '#16a34a', fontWeight: 'bold', marginBottom: 12 }}>お問い合わせを送信しました！</div>
+        <button 
+          onClick={onClose} 
+          className="save-button"
+          style={{ 
+            marginTop: 8,
+            background: '#4f46e5'
+          }}
+        >
+          <span>✓ 閉じる</span>
+        </button>
       </div>
     );
   }
@@ -138,40 +136,26 @@ function ContactForm({ onClose, user }) {
               {error}
             </div>
           )}
-          <div style={{ display: 'flex', gap: 12 }}>
-            <button 
+          <div style={{ display: 'flex', gap: 12 }}>            <button 
               type="submit" 
               disabled={sending} 
+              className="save-button"
               style={{ 
                 flex: 1,
-                padding: '12px 16px', 
-                fontSize: 16,
-                background: sending ? '#9ca3af' : '#10b981',
-                color: 'white',
-                border: 'none',
-                borderRadius: 8,
-                fontWeight: 'bold',
-                cursor: sending ? 'not-allowed' : 'pointer'
+                background: sending ? '#9ca3af' : undefined
               }}
             >
-              {sending ? '送信中...' : '📤 送信'}
+              <span>{sending ? '送信中...' : '📤 送信'}</span>
             </button>
             <button 
               type="button" 
               onClick={onClose} 
+              className="cancel-button"
               style={{ 
-                flex: 1,
-                padding: '12px 16px',
-                fontSize: 16,
-                background: '#6b7280',
-                color: 'white',
-                border: 'none',
-                borderRadius: 8,
-                fontWeight: 'bold',
-                cursor: 'pointer'
+                flex: 1
               }}
             >
-              ❌ キャンセル
+              <span>✖️ キャンセル</span>
             </button>
           </div>
         </form>

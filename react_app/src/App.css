@@ -769,6 +769,68 @@ form .suggest-btns {
   }
 }
 
+/* モバイル版スタイルの保護（767px以下） */
+@media (max-width: 767px) {
+  /* スマホ版のスタイルを明示的に保持 */
+  .App-header {
+    max-width: 100vw !important;
+    margin: 0 !important;
+    padding-top: 24px !important;
+  }
+
+  .App-header h1 {
+    font-size: 1.5rem !important;
+    margin-bottom: 16px !important;
+    text-align: center !important;
+  }
+
+  .register-message {
+    text-align: center !important;
+    font-size: 16px !important;
+    margin: 12px 16px !important;
+    padding: 12px !important;
+  }
+
+  .auth-form-container {
+    margin: 0 16px !important;
+    padding: 0 !important;
+  }
+
+  .auth-form {
+    margin: 20px auto !important;
+    padding: 24px !important;
+    border-radius: 8px !important;
+  }
+
+  .main-content {
+    padding: 16px !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .form-center-wrap {
+    margin: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .menu-dropdown {
+    left: 0 !important;
+    right: auto !important;
+    min-width: 160px !important;
+  }
+
+  /* ボタンとフォーム要素のモバイル最適化 */
+  button {
+    min-height: 44px !important;
+    font-size: 16px !important;
+  }
+
+  input, select, textarea {
+    font-size: 16px !important;
+    padding: 12px !important;
+  }
+}
+
 /* --- 画像添付時のカメラアイコン位置・フォームレイアウト修正 --- */
 
 /* 質問フォームの画像添付カメラアイコンを右下に重ねる */
@@ -970,5 +1032,345 @@ form .suggest-btns {
   .dropdown-menu button {
     padding: 10px 12px;
     font-size: 13px;
+  }
+}
+
+/* PC版レスポンシブスタイル（768px以上） */
+@media (min-width: 768px) {
+  /* メインヘッダーの中央揃え */
+  .App-header {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px 20px;
+  }
+
+  /* タイトルの中央揃え */
+  .App-header h1 {
+    text-align: center;
+    font-size: 2.5rem;
+    margin-bottom: 30px;
+    color: #374151;
+    font-weight: bold;
+  }
+
+  /* 新規登録メッセージの中央揃え */
+  .register-message {
+    text-align: center;
+    margin: 32px auto 24px auto;
+    font-size: 18px;
+    max-width: 600px;
+    padding: 16px 24px;
+    background: #d1fae5;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    display: block;
+  }
+
+  /* 認証フォームのスタイル改善 */
+  .auth-form-container {
+    max-width: 420px;
+    margin: 0 auto;
+    padding: 32px;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  }
+
+  /* メニュードロップダウンの位置調整 */
+  .menu-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    min-width: 200px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+    z-index: 1000;
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+  }
+
+  /* メインコンテンツエリア */
+  .main-content {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+
+  /* 質問フォームの改善 */
+  .form-center-wrap {
+    max-width: 700px;
+    margin: 0 auto;
+  }
+
+  /* ボタングループの改善 */
+  .button-group {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  /* カードレイアウトの改善 */
+  .card-layout {
+    background: white;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    margin-bottom: 20px;
+  }
+
+  /* ヘッダーナビゲーションの改善 */
+  .header-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+  }
+
+  /* テキストエリアの改善 */
+  textarea {
+    border-radius: 12px !important;
+    border: 2px solid #e5e7eb !important;
+    padding: 16px !important;
+    font-size: 16px !important;
+    transition: border-color 0.2s ease;
+  }
+
+  textarea:focus {
+    border-color: #4f46e5 !important;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+  }
+
+  /* セレクトボックスの改善 */
+  select {
+    border-radius: 8px !important;
+    border: 2px solid #e5e7eb !important;
+    padding: 12px 16px !important;
+    font-size: 16px !important;
+    background: white;
+    transition: border-color 0.2s ease;
+  }
+
+  select:focus {
+    border-color: #4f46e5 !important;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+  }
+
+  /* ボタンの改善 */
+  button {
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    transition: all 0.2s ease !important;
+  }
+
+  button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  }
+}
+
+/* タブレット用（768px-1024px） */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .App-header {
+    max-width: 100%;
+    padding: 30px 40px;
+  }
+
+  .main-content {
+    max-width: 90%;
+  }
+
+  .form-center-wrap {
+    max-width: 90%;
+  }
+}
+
+/* 大画面用（1200px以上） */
+@media (min-width: 1200px) {
+  .App-header {
+    padding: 50px 40px;
+  }
+
+  .App-header h1 {
+    font-size: 3rem;
+    margin-bottom: 40px;
+  }
+
+  .main-content {
+    max-width: 900px;
+  }
+
+  .form-center-wrap {
+    max-width: 800px;
+  }
+}
+
+/* AuthFormのPC版スタイル */
+@media (min-width: 768px) {
+  .auth-form {
+    padding: 40px !important;
+    border-radius: 16px !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.12) !important;
+  }
+
+  .auth-form h2 {
+    font-size: 24px !important;
+    margin-bottom: 24px !important;
+  }
+
+  .auth-form input,
+  .auth-form select {
+    padding: 12px 16px !important;
+    border-radius: 8px !important;
+    border: 2px solid #e5e7eb !important;
+    font-size: 16px !important;
+    transition: border-color 0.2s ease;
+  }
+
+  .auth-form input:focus,
+  .auth-form select:focus {
+    border-color: #4f46e5 !important;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+  }
+
+  .auth-form button[type="submit"] {
+    padding: 14px !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    background: #4f46e5 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 10px !important;
+    transition: all 0.2s ease !important;
+  }
+
+  .auth-form button[type="submit"]:hover {
+    background: #4338ca !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(67, 56, 202, 0.4);
+  }
+}
+
+/* キャンセルボタンのスタイル改善 */
+.cancel-button {
+  background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%) !important;
+  color: white !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 10px 20px !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.3s ease !important;
+  box-shadow: 0 2px 8px rgba(107, 114, 128, 0.3) !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.cancel-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4b5563 0%, #374151 100%) !important;
+  transform: translateY(-2px) !important;
+  box-shadow: 0 4px 16px rgba(107, 114, 128, 0.4) !important;
+}
+
+.cancel-button:active {
+  transform: translateY(0px) !important;
+  box-shadow: 0 2px 8px rgba(107, 114, 128, 0.3) !important;
+}
+
+.cancel-button:disabled {
+  background: #9ca3af !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+}
+
+/* キャンセルボタンにリップル効果 */
+.cancel-button::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transition: width 0.6s, height 0.6s, top 0.6s, left 0.6s;
+  transform: translate(-50%, -50%);
+  z-index: 0;
+}
+
+.cancel-button:active::before {
+  width: 300px;
+  height: 300px;
+}
+
+.cancel-button span {
+  position: relative;
+  z-index: 1;
+}
+
+/* PC版でのキャンセルボタン改善 */
+@media (min-width: 768px) {
+  .cancel-button {
+    padding: 12px 24px !important;
+    font-size: 16px !important;
+    border-radius: 12px !important;
+  }
+}
+
+/* 保存ボタンのスタイル改善（統一感のため） */
+.save-button {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  color: white !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 10px 20px !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.3s ease !important;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3) !important;
+}
+
+.save-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
+  transform: translateY(-2px) !important;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4) !important;
+}
+
+.save-button:disabled {
+  background: #9ca3af !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+}
+
+/* スマホ（767px以下）は現状維持 */
+@media (max-width: 767px) {
+  .register-message {
+    text-align: center;
+    margin: 12px 16px;
+    font-size: 16px;
+    padding: 12px;
+  }
+}
+
+/* PC（768px以上）は中央揃え＋幅制限 */
+@media (min-width: 768px) {
+  .register-message {
+    text-align: center;
+    margin: 32px auto 24px auto;
+    font-size: 18px;
+    max-width: 600px;
+    padding: 16px 24px;
+    background: #d1fae5;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    display: block;
   }
 }

@@ -1,27 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeKatex from 'rehype-katex';
-import remarkMath from 'remark-math';
 import 'katex/dist/katex.min.css';
 import './App.css';
-import Tesseract from 'tesseract.js';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import AuthForm from './components/AuthForm';
 import ChatBox from './components/ChatBox';
 import HistoryList from './components/HistoryList';
 import ContactForm from './components/ContactForm';
-import FormattedText from './components/FormattedText';
-
-const SUGGESTIONS = [
-  'もう少しヒントが欲しい',
-  '途中式を詳しく教えて',
-  '別の考え方を教えて',
-  'この問題の類題を出して',
-  '答えの理由を説明して'
-];
+import ProfileView from './components/ProfileView';
+import { sortHistory, saveUserProfile as saveUserProfileApi, fetchHistory as fetchHistoryApi, fetchUserProfile as fetchUserProfileApi } from './utils/api';
+import { formatMathInput, getTimeBasedGreeting } from './utils/format';
+import { handleImageInput, handleSpeechInput } from './utils/input';
 
 // Firestoreエミュレータ/本番のURLを環境変数から取得
 const FIRESTORE_API_URL = (() => {
@@ -59,317 +49,22 @@ if (!API_URL) {
   console.error('REACT_APP_API_URL_LOCAL/PRODが未設定です。AI API呼び出しは失敗します。');
 }
 
-// プロフィール画面コンポーネント
-const ProfileView = ({ user, userProfile, setCurrentView, saveUserProfile, setGrade }) => {
-  const [editMode, setEditMode] = useState(false);
-  const [nicknameEditMode, setNicknameEditMode] = useState(false);
-  const [tempGrade, setTempGrade] = useState(userProfile.preferredGrade || '小学生');
-  const [tempNickname, setTempNickname] = useState(userProfile.nickname || '');
-  const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState('');
-
-  const handleSave = async () => {
-    setSaving(true);
-    setSaveMessage('');
-    try {
-      const updatedProfile = {
-        ...userProfile,
-        preferredGrade: tempGrade
-      };
-      await saveUserProfile(updatedProfile);
-      setGrade(tempGrade); // 現在の学年設定も更新
-      setEditMode(false);
-      setSaveMessage('学年設定を保存しました！');
-      setTimeout(() => setSaveMessage(''), 3000);
-    } catch (error) {
-      setSaveMessage('保存に失敗しました。もう一度お試しください。');
-      setTimeout(() => setSaveMessage(''), 3000);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleNicknameSave = async () => {
-    setSaving(true);
-    setSaveMessage('');
-    try {
-      const updatedProfile = {
-        ...userProfile,
-        nickname: tempNickname.trim()
-      };
-      await saveUserProfile(updatedProfile);
-      setNicknameEditMode(false);
-      setSaveMessage('ニックネームを保存しました！');
-      setTimeout(() => setSaveMessage(''), 3000);
-    } catch (error) {
-      setSaveMessage('保存に失敗しました。もう一度お試しください。');
-      setTimeout(() => setSaveMessage(''), 3000);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleCancel = () => {
-    setTempGrade(userProfile.preferredGrade || '小学生');
-    setEditMode(false);
-  };
-
-  const handleNicknameCancel = () => {
-    setTempNickname(userProfile.nickname || '');
-    setNicknameEditMode(false);
-  };
-
-  return (
-    <div style={{ maxWidth: 480, margin: '0 auto', padding: 20 }}>
-      <div style={{ background: 'white', borderRadius: 12, padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-        <h2 style={{ marginBottom: 24, color: '#374151', textAlign: 'center' }}>👤 プロフィール</h2>
-        
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: 8, color: '#374151' }}>
-            📧 メールアドレス
-          </label>
-          <div style={{ 
-            padding: '12px 16px', 
-            background: '#f9fafb', 
-            border: '1px solid #e5e7eb', 
-            borderRadius: 8, 
-            color: '#6b7280' 
-          }}>
-            {user?.email || 'メールアドレスが取得できません'}
-          </div>
-        </div>        <div style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <label style={{ fontWeight: 'bold', color: '#374151' }}>
-              🏷️ ニックネーム
-            </label>
-            {!nicknameEditMode && (
-              <button
-                onClick={() => setNicknameEditMode(true)}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid #d1d5db',
-                  borderRadius: 4,
-                  padding: '4px 8px',
-                  fontSize: 12,
-                  color: '#4f46e5',
-                  cursor: 'pointer'
-                }}
-              >
-                ✏️ 編集
-              </button>
-            )}
-          </div>
-          
-          {nicknameEditMode ? (
-            <div>
-              <input
-                type="text"
-                value={tempNickname}
-                onChange={(e) => setTempNickname(e.target.value)}
-                placeholder="ニックネームを入力"
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  border: '2px solid #4f46e5',
-                  borderRadius: 8,
-                  fontSize: 16,
-                  marginBottom: 12,
-                  boxSizing: 'border-box'
-                }}
-              />
-              
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  onClick={handleNicknameSave}
-                  disabled={saving}
-                  style={{
-                    flex: 1,
-                    background: '#10b981',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: 6,
-                    padding: '8px 16px',
-                    fontSize: 14,
-                    fontWeight: 'bold',
-                    cursor: saving ? 'not-allowed' : 'pointer',
-                    opacity: saving ? 0.7 : 1
-                  }}
-                >
-                  {saving ? '保存中...' : '💾 保存'}
-                </button>
-                <button
-                  onClick={handleNicknameCancel}
-                  disabled={saving}
-                  style={{
-                    flex: 1,
-                    background: '#6b7280',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: 6,
-                    padding: '8px 16px',
-                    fontSize: 14,
-                    fontWeight: 'bold',
-                    cursor: saving ? 'not-allowed' : 'pointer',
-                    opacity: saving ? 0.7 : 1
-                  }}
-                >
-                  ❌ キャンセル
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ 
-              padding: '12px 16px', 
-              background: '#f9fafb', 
-              border: '1px solid #e5e7eb', 
-              borderRadius: 8, 
-              color: '#374151' 
-            }}>
-              {userProfile.nickname || 'ニックネームが設定されていません'}
-            </div>
-          )}
-        </div>
-
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <label style={{ fontWeight: 'bold', color: '#374151' }}>
-              🎓 学年設定
-            </label>
-            {!editMode && (
-              <button
-                onClick={() => setEditMode(true)}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid #d1d5db',
-                  borderRadius: 4,
-                  padding: '4px 8px',
-                  fontSize: 12,
-                  color: '#4f46e5',
-                  cursor: 'pointer'
-                }}
-              >
-                ✏️ 編集
-              </button>
-            )}
-          </div>
-          
-          {editMode ? (
-            <div>
-              <select
-                value={tempGrade}
-                onChange={(e) => setTempGrade(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  border: '2px solid #4f46e5',
-                  borderRadius: 8,
-                  fontSize: 16,
-                  marginBottom: 12
-                }}
-              >
-                <option value="小学生">小学生</option>
-                <option value="中学生">中学生</option>
-                <option value="高校生">高校生</option>
-              </select>
-              
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  style={{
-                    flex: 1,
-                    background: '#10b981',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: 6,
-                    padding: '8px 16px',
-                    fontSize: 14,
-                    fontWeight: 'bold',
-                    cursor: saving ? 'not-allowed' : 'pointer',
-                    opacity: saving ? 0.7 : 1
-                  }}
-                >
-                  {saving ? '保存中...' : '💾 保存'}
-                </button>
-                <button
-                  onClick={handleCancel}
-                  disabled={saving}
-                  style={{
-                    flex: 1,
-                    background: '#6b7280',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: 6,
-                    padding: '8px 16px',
-                    fontSize: 14,
-                    fontWeight: 'bold',
-                    cursor: saving ? 'not-allowed' : 'pointer',
-                    opacity: saving ? 0.7 : 1
-                  }}
-                >
-                  ❌ キャンセル
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ 
-              padding: '12px 16px', 
-              background: '#f9fafb', 
-              border: '1px solid #e5e7eb', 
-              borderRadius: 8, 
-              color: '#374151' 
-            }}>
-              {userProfile.preferredGrade || '小学生'}
-            </div>
-          )}
-        </div>
-
-        {saveMessage && (
-          <div style={{ 
-            marginBottom: 16, 
-            padding: '8px 12px', 
-            background: saveMessage.includes('失敗') ? '#fee2e2' : '#d1fae5',
-            color: saveMessage.includes('失敗') ? '#dc2626' : '#059669',
-            borderRadius: 6,
-            fontSize: 14,
-            textAlign: 'center'
-          }}>
-            {saveMessage}
-          </div>
-        )}
-
-        <div style={{ textAlign: 'center' }}>
-          <button 
-            onClick={() => setCurrentView('question')}
-            style={{
-              background: '#4f46e5',
-              color: 'white',
-              border: 'none',
-              borderRadius: 8,
-              padding: '12px 24px',
-              fontSize: 16,
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              transition: 'background-color 0.2s'
-            }}
-            onMouseOver={(e) => e.target.style.background = '#4338ca'}
-            onMouseOut={(e) => e.target.style.background = '#4f46e5'}
-          >
-            質問メニューに戻る
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+// パスワードバリデーション関数
+const validatePassword = (pw) => {
+  if (!pw || pw.length < 8) return "パスワードは8文字以上必要です。";
+  if (!/[A-Z]/.test(pw)) return "大文字を1文字以上含めてください。";
+  if (!/[a-z]/.test(pw)) return "小文字を1文字以上含めてください。";
+  if (!/[0-9]/.test(pw)) return "数字を1文字以上含めてください。";
+  if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(pw)) return "記号を1文字以上含めてください。";
+  return null;
 };
 
 function App() {
   const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
+  const [answer, setAnswer] = useState(""); // 未使用
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [history, setHistory] = useState([]);
-  const [showPromptHelp, setShowPromptHelp] = useState(false); // 曖昧な質問時の誘導表示
   const [grade, setGrade] = useState("小学生"); // 学年選択用
   const [subject, setSubject] = useState("数学"); // 科目選択用
   const [expandedId, setExpandedId] = useState(null);
@@ -386,7 +81,7 @@ function App() {
   // 新しい状態管理
   const [currentView, setCurrentView] = useState("question"); // "question", "history", "contact", "profile"
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [sortBy, setSortBy] = useState("subject"); // "subject"のみ
+  const [sortBy] = useState("subject"); // setSortBy未使用なので削除
   const [subjectFilter, setSubjectFilter] = useState("all"); // 科目フィルター
   const [userProfile, setUserProfile] = useState({ // ユーザープロファイル
     name: "",
@@ -397,6 +92,21 @@ function App() {
   const [imageLoading, setImageLoading] = useState(false);
   const [imageLoadedMsg, setImageLoadedMsg] = useState("");
   const [registerMsg, setRegisterMsg] = useState(""); // 新規登録メッセージ用ステート
+  // reCAPTCHA認証用状態
+  const [captchaRequired, setCaptchaRequired] = useState(false);
+  const [captchaError, setCaptchaError] = useState("");
+  const [captchaLoading, setCaptchaLoading] = useState(false);
+  // 新規追加: 曖昧な質問時の誘導表示
+  const [showPromptHelp] = useState(false); // setShowPromptHelp未使用なので削除
+  const [followupList, setFollowupList] = useState([]);
+  
+  // スレッド管理
+  const [threadId, setThreadId] = useState(null); // スレッドID（親質問ID）
+  const [followupLoading, setFollowupLoading] = useState(false);
+  const [followupError, setFollowupError] = useState("");
+  const [followupImageData, setFollowupImageData] = useState(null);
+  const [followupImageLoading, setFollowupImageLoading] = useState(false);
+  const [followupImageLoadedMsg, setFollowupImageLoadedMsg] = useState("");
 
   // Firebase初期化
   useEffect(() => {
@@ -409,14 +119,29 @@ function App() {
     }
   }, []);
   // メールアドレスでログイン/新規登録
-  const handleAuth = async (e) => {
-    e.preventDefault();
+  const handleAuth = async (e) => {    e.preventDefault();
     setAuthError("");
-    setRegisterMsg(""); // 新規登録メッセージを初期化
+    setRegisterMsg("");
+    setCaptchaError("");
+    // パスワードバリデーション
+    if (authMode === "register" || authMode === "login") {
+      const pwErr = validatePassword(password);
+      if (pwErr) {
+        setAuthError(pwErr);
+        return;
+      }
+    }
     try {
       if (authMode === "login") {
         const res = await firebase.auth().signInWithEmailAndPassword(email, password);
-        setUser(res.user);      } else {
+        // reCAPTCHA認証が必要かチェック
+        if (res.user && !res.user.emailVerified) {
+          setCaptchaRequired(true);
+          setUser(res.user); // 一時的にセット
+          return;
+        }
+        setUser(res.user);
+      } else {
         const res = await firebase.auth().createUserWithEmailAndPassword(email, password);
           // 新規登録時にプロファイルを保存（デフォルト学年設定）
         const profileData = {
@@ -443,22 +168,120 @@ function App() {
     }
   };
 
-  // Firebase認証の永続化設定（10日間）
+  // MFA: 電話番号認証開始  const recaptchaVerifierRef = useRef(null);
+  const recaptchaVerifierRef = useRef(null);
+    // reCAPTCHA認証処理（タイムアウト対策強化）
+  const startCaptchaVerification = async () => {
+    setCaptchaError("");
+    setCaptchaLoading(true);
+    
+    // DOM要素の存在確認（少し待ってから再確認）
+    const checkContainer = () => {
+      return new Promise((resolve) => {
+        const container = document.getElementById('recaptcha-container');
+        if (container) {
+          resolve(true);
+        } else {
+          setTimeout(() => {
+            resolve(!!document.getElementById('recaptcha-container'));
+          }, 100);
+        }
+      });
+    };
+    
+    const containerExists = await checkContainer();
+    if (!containerExists) {
+      setCaptchaError('reCAPTCHAの初期化に失敗しました。ページを再読み込みしてください。');
+      setCaptchaLoading(false);
+      return;
+    }
+    
+    try {
+      // 既存インスタンスがあればクリア
+      if (recaptchaVerifierRef.current) {
+        try { 
+          recaptchaVerifierRef.current.clear(); 
+        } catch (e) {
+          console.warn('reCAPTCHA clear error:', e);
+        }
+        recaptchaVerifierRef.current = null;
+      }
+      
+      // タイムアウト設定付きでreCAPTCHA初期化
+      const initRecaptcha = () => {
+        return new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('reCAPTCHA初期化がタイムアウトしました'));
+          }, 10000); // 10秒でタイムアウト
+          
+          try {            recaptchaVerifierRef.current = new firebase.auth.RecaptchaVerifier('recaptcha-container', {
+              size: 'normal',
+              callback: (response) => {
+                clearTimeout(timeout);
+                // 認証成功時の処理を安全に実行
+                setTimeout(() => {
+                  try {
+                    setCaptchaRequired(false);
+                    setCaptchaLoading(false);
+                    // 認証後にreCAPTCHAをクリア
+                    if (recaptchaVerifierRef.current) {
+                      try { recaptchaVerifierRef.current.clear(); } catch (e) {}
+                      recaptchaVerifierRef.current = null;
+                    }
+                    resolve(response);
+                  } catch (e) {
+                    console.error('reCAPTCHA callback error:', e);
+                    resolve(response); // エラーでも成功として扱う
+                  }
+                }, 100); // 少し遅延して実行
+              },
+              'error-callback': (error) => {
+                clearTimeout(timeout);
+                reject(error);
+              }
+            });
+            
+            recaptchaVerifierRef.current.render().then(() => {
+              clearTimeout(timeout);
+              resolve('rendered');
+            }).catch((error) => {
+              clearTimeout(timeout);
+              reject(error);
+            });
+          } catch (error) {
+            clearTimeout(timeout);
+            reject(error);
+          }
+        });
+      };
+      
+      await initRecaptcha();
+      
+    } catch (err) {
+      setCaptchaError('reCAPTCHA認証エラー: ' + (err.message || ''));
+      setCaptchaLoading(false);
+      // エラー時もクリーンアップ
+      if (recaptchaVerifierRef.current) {
+        try { recaptchaVerifierRef.current.clear(); } catch (e) {}
+        recaptchaVerifierRef.current = null;
+      }
+    }
+  };
+
+  // Firebase認証の永続化設定（3日間）
   useEffect(() => {
-    if (firebase.auth().currentUser) return; // 既にログイン済みなら何もしない
+    if (firebase.auth().currentUser) return;
     firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-    // セッションの有効期限を10日間に設定
+    // セッションの有効期限を3日間に設定
     firebase.auth().onAuthStateChanged(user => {
       if (user) {
         user.getIdTokenResult().then(idTokenResult => {
-          // 10日間で再認証が必要になるようにする
-          const expiresIn = 10 * 24 * 60 * 60 * 1000; // 10日
+          const expiresIn = 3 * 24 * 60 * 60 * 1000; // 3日
           window.localStorage.setItem('firebaseSessionExpires', Date.now() + expiresIn);
         });
       }
     });
-  }, []);
-  // ログアウト処理
+  }, []);  // ログアウト処理
   const handleLogout = async () => {
     await firebase.auth().signOut();
     setUser(null);
@@ -472,17 +295,85 @@ function App() {
     setQuestion("");
     setAnswer("");
     setImageData(null);
-    setImageLoadedMsg("");
-    setFollowupImageData && setFollowupImageData(null);
-  };// --- Firestoreから履歴を取得 ---
-  const fetchHistory = async (uid) => {
+    setImageLoadedMsg("");    setFollowupImageData && setFollowupImageData(null);
+    // 履歴をクリア（ユーザー切り替え時の履歴混在を防止）
+    setHistory([]);
+    setUserProfile({ name: "", nickname: "", weakSubjects: [], preferredGrade: "小学生" });
+  };
+
+  // sortHistoryをuseCallbackで先に定義
+  // const sortHistory = useCallback((historyArray) => {
+  //   return historyArray.sort((a, b) => {
+  //     const subjectComparison = a.subject.localeCompare(b.subject);
+  //     if (subjectComparison !== 0) {
+  //       return subjectComparison;
+  //     }
+  //     return b.createdAt > a.createdAt ? 1 : -1;
+  //   });
+  // }, []);
+
+  // --- ユーザープロファイルを保存 ---
+  // const saveUserProfile = useCallback(async (profile, uid = null) => {
+  //   const targetUid = uid || user?.uid;
+  //   if (!targetUid) return;
+  //   try {
+  //     const data = {
+  //       fields: {
+  //         name: { stringValue: profile.name || "" },
+  //         nickname: { stringValue: profile.nickname || "" },
+  //         weakSubjects: {
+  //           arrayValue: {
+  //             values: (profile.weakSubjects || []).map(s => ({ stringValue: s }))
+  //           }
+  //         },
+  //         preferredGrade: { stringValue: profile.preferredGrade || "小学生" },
+  //         updatedAt: { timestampValue: new Date().toISOString() }
+  //       }
+  //     };
+  //     await axios.patch(`${FIRESTORE_API_URL}/userProfiles/${targetUid}`, data);
+  //     setUserProfile(profile);
+  //   } catch (e) {
+  //     console.error('プロファイル保存エラー:', e);
+  //   }
+  // }, [user]);
+  // --- Firestoreから履歴を取得（ユーザIDでフィルタリング） ---
+  const fetchHistory = useCallback(async (uid) => {
     if (!uid) return;
     try {
-      const res = await axios.get(
-        `${FIRESTORE_API_URL}/questionThreads`);
-      if (res.data.documents && Array.isArray(res.data.documents)) {
-        const historyArr = res.data.documents
-          .map(doc => {
+      // Firestore REST APIでユーザIDでクエリフィルタリング
+      const queryUrl = `${FIRESTORE_API_URL}/questionThreads:runQuery`;
+      const query = {
+        structuredQuery: {
+          from: [{ collectionId: 'questionThreads' }],
+          where: {
+            fieldFilter: {
+              field: { fieldPath: 'uid' },
+              op: 'EQUAL',
+              value: { stringValue: uid }
+            }
+          },
+          orderBy: [
+            {
+              field: { fieldPath: 'subject' },
+              direction: 'ASCENDING'
+            },
+            {
+              field: { fieldPath: 'createdAt' },
+              direction: 'DESCENDING'
+            }
+          ]
+        }
+      };
+      
+      const res = await axios.post(queryUrl, query, {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (res.data && Array.isArray(res.data)) {
+        const historyArr = res.data
+          .filter(item => item.document) // documentが存在するもののみ
+          .map(item => {
+            const doc = item.document;
             const threadArr = doc.fields.thread?.arrayValue?.values || [];
             return {
               id: doc.name.split('/').pop(),
@@ -490,7 +381,7 @@ function App() {
               answer: doc.fields.answer?.stringValue || '',
               createdAt: doc.fields.createdAt?.stringValue || doc.fields.createdAt?.timestampValue || '',
               grade: doc.fields.grade?.stringValue || '',
-              subject: doc.fields.subject?.stringValue || '数学', // 科目情報を追加
+              subject: doc.fields.subject?.stringValue || '数学',
               uid: doc.fields.uid?.stringValue || '',
               thread: threadArr.map(t => ({
                 question: t.mapValue.fields.q.stringValue,
@@ -499,110 +390,92 @@ function App() {
               }))
             };
           })
-          // 修正: threadが空でもquestion/answerがあれば履歴に含める
-          .filter(item => item.uid === uid && item.question && item.answer);
+          .filter(item => item.question && item.answer); // 有効なデータのみ
         
-        // ソート処理
-        const sortedHistory = sortHistory(historyArr);
-        setHistory(sortedHistory);
+        setHistory(historyArr);
       } else {
         setHistory([]);
       }
-    } catch (e) { setHistory([]); }
-  };
-  // 履歴のソート処理（科目別、日付は常に新しい順）
-  const sortHistory = (historyArray) => {
-    return historyArray.sort((a, b) => {
-      // まず科目でソート
-      const subjectComparison = a.subject.localeCompare(b.subject);
-      if (subjectComparison !== 0) {
-        return subjectComparison;
+    } catch (e) { 
+      console.error('履歴取得エラー:', e);
+      // フォールバック: 従来の方法でも試行
+      try {
+        const res = await axios.get(`${FIRESTORE_API_URL}/questionThreads`);
+        if (res.data.documents && Array.isArray(res.data.documents)) {
+          const historyArr = res.data.documents
+            .map(doc => {
+              const threadArr = doc.fields.thread?.arrayValue?.values || [];
+              return {
+                id: doc.name.split('/').pop(),
+                question: doc.fields.question?.stringValue || '',
+                answer: doc.fields.answer?.stringValue || '',
+                createdAt: doc.fields.createdAt?.stringValue || doc.fields.createdAt?.timestampValue || '',
+                grade: doc.fields.grade?.stringValue || '',
+                subject: doc.fields.subject?.stringValue || '数学',
+                uid: doc.fields.uid?.stringValue || '',
+                thread: threadArr.map(t => ({
+                  question: t.mapValue.fields.q.stringValue,
+                  answer: t.mapValue.fields.a.stringValue,
+                  createdAt: t.mapValue.fields.createdAt.stringValue
+                }))
+              };
+            })
+            .filter(item => item.uid === uid && item.question && item.answer);
+          const sortedHistory = sortHistory(historyArr);
+          setHistory(sortedHistory);
+        } else {
+          setHistory([]);
+        }
+      } catch (fallbackError) {
+        setHistory([]); 
       }
-      // 同じ科目の場合は日付の新しい順（降順）
-      return b.createdAt > a.createdAt ? 1 : -1;
-    });
-  };
+    }
+  }, [setHistory]);
 
+  // --- ユーザープロファイルを取得 ---
+  // const fetchUserProfile = useCallback(async (uid) => {
+  //   if (!uid) return;
+  //   try {
+  //     const res = await axios.get(`${FIRESTORE_API_URL}/userProfiles/${uid}`);
+  //     if (res.data.fields) {
+  //       const profile = {
+  //         name: res.data.fields.name?.stringValue || "",
+  //         nickname: res.data.fields.nickname?.stringValue || "",
+  //         weakSubjects: res.data.fields.weakSubjects?.arrayValue?.values?.map(v => v.stringValue) || [],
+  //         preferredGrade: res.data.fields.preferredGrade?.stringValue || "小学生"
+  //       };
+  //       setUserProfile(profile);
+  //       setGrade(profile.preferredGrade); // 学年を設定
+  //     }
+  //   } catch (e) {
+  //     // プロファイルが存在しない場合は初期値で作成
+  //     console.log('ユーザープロファイルが見つかりません。初期値で作成します。');
+  //     const defaultProfile = {
+  //       name: "",
+  //       nickname: "",
+  //       weakSubjects: [],
+  //       preferredGrade: "小学生"
+  //     };
+  //     try {
+  //       await saveUserProfile(defaultProfile, uid);
+  //       setGrade(defaultProfile.preferredGrade);
+  //     } catch (createError) {
+  //       console.error('初期プロファイル作成エラー:', createError);
+  //     }
+  //   }  }, [saveUserProfile]);
   // ソート条件が変わった時に履歴を再ソート
   useEffect(() => {
     if (history.length > 0) {
       const sortedHistory = sortHistory([...history]);
       setHistory(sortedHistory);
     }
-  }, [sortBy]);  // --- ユーザープロファイルを取得 ---
-  const fetchUserProfile = async (uid) => {
-    if (!uid) return;
-    try {
-      const res = await axios.get(`${FIRESTORE_API_URL}/userProfiles/${uid}`);
-      if (res.data.fields) {
-        const profile = {
-          name: res.data.fields.name?.stringValue || "",
-          nickname: res.data.fields.nickname?.stringValue || "", // ニックネーム追加
-          weakSubjects: res.data.fields.weakSubjects?.arrayValue?.values?.map(v => v.stringValue) || [],
-          preferredGrade: res.data.fields.preferredGrade?.stringValue || "小学生"
-        };
-        setUserProfile(profile);
-        setGrade(profile.preferredGrade); // 学年を設定
-      }
-    } catch (e) {
-      // プロファイルが存在しない場合は初期値で作成
-      console.log('ユーザープロファイルが見つかりません。初期値で作成します。');
-      const defaultProfile = {
-        name: "",
-        nickname: "",
-        weakSubjects: [],
-        preferredGrade: "小学生"
-      };
-      try {
-        await saveUserProfile(defaultProfile, uid);
-        setGrade(defaultProfile.preferredGrade);
-      } catch (createError) {
-        console.error('初期プロファイル作成エラー:', createError);
-      }
-    }
-  };
-  // --- ユーザープロファイルを保存 ---
-  const saveUserProfile = async (profile, uid = null) => {
-    const targetUid = uid || user?.uid;
-    if (!targetUid) return;
-    try {
-      const data = {
-        fields: {
-          name: { stringValue: profile.name || "" },
-          nickname: { stringValue: profile.nickname || "" }, // ニックネーム追加
-          weakSubjects: { 
-            arrayValue: { 
-              values: (profile.weakSubjects || []).map(s => ({ stringValue: s })) 
-            } 
-          },
-          preferredGrade: { stringValue: profile.preferredGrade || "小学生" },
-          updatedAt: { timestampValue: new Date().toISOString() }
-        }
-      };
-      await axios.patch(`${FIRESTORE_API_URL}/userProfiles/${targetUid}`, data);
-      setUserProfile(profile);
-    } catch (e) {
-      console.error('プロファイル保存エラー:', e);
-    }
-  };useEffect(() => {
+  }, [sortBy, history]);
+
+  useEffect(() => {
     if (!user) return;
     fetchHistory(user.uid);
-    fetchUserProfile(user.uid);
-  }, [user]);
-
-  // 時間ごとの挨拶を取得する関数
-  const getTimeBasedGreeting = () => {
-    const now = new Date();
-    const hour = now.getHours();
-    
-    if (hour >= 0 && hour < 11) {
-      return 'おはようございます';
-    } else if (hour >= 11 && hour < 17) {
-      return 'こんにちは';
-    } else {
-      return 'こんばんは';
-    }
-  };
+    fetchUserProfileApi(user.uid, FIRESTORE_API_URL, setUserProfile, setGrade, saveUserProfileApi);
+  }, [user, fetchHistory, fetchUserProfileApi, setUserProfile, setGrade, saveUserProfileApi]);
 
   // 進行中チャット（1スレッド分）をローカルで管理
   const [currentThread, setCurrentThread] = useState({
@@ -614,24 +487,24 @@ function App() {
   });
 
   // 数式を自動で$...$や$$...$$で囲む（[ ... ]→$$...$$変換も対応）
-  function formatMathInput(input) {
-    if (!input) return input;
-    // すでに$...$や$$...$$で囲まれている場合はそのまま
-    // → 1行全体が$...$または$$...$$で囲まれている場合のみスキップ
-    if (/^\s*\${1,2}[\s\S]*\${1,2}\s*$/.test(input.trim())) return input;
-    // [ ... ] で囲まれた行を $$...$$ に変換（複数行対応）
-    let replaced = input.replace(/\n?\[([\s\S]*?)\]\n?/g, (match, p1) => `\n$$\n${p1.trim()}\n$$\n`);
-    // 数式らしいパターン（英数字・記号のみ、=や^や√や分数など）を$...$で囲む
-    const mathLike = /^[\s\d\w\^\+\-\*\/=\\\(\)\[\]\\,.√π]+$/;
-    replaced = replaced.split('\n').map(line => {
-      // 1行全体が$...$や$$...$$で囲まれている場合はそのまま
-      if (/^\s*\${1,2}[\s\S]*\${1,2}\s*$/.test(line.trim())) return line;
-      // 行中に$が2つ以上含まれる場合（既に数式が混在している場合）はそのまま
-      if ((line.match(/\$/g) || []).length >= 2) return line;
-      return mathLike.test(line.trim()) ? `$${line.trim()}$` : line;
-    }).join('\n');
-    return replaced;
-  }
+  // function formatMathInput(input) {
+  //   if (!input) return input;
+  //   // すでに$...$や$$...$$で囲まれている場合はそのまま
+  //   // → 1行全体が$...$または$$...$$で囲まれている場合のみスキップ
+  //   if (/^\s*\${1,2}[\s\S]*\${1,2}\s*$/.test(input.trim())) return input;
+  //   // [ ... ] で囲まれた行を $$...$$ に変換（複数行対応）
+  //   let replaced = input.replace(/\n?\[([\s\S]*?)\]\n?/g, (match, p1) => `\n$$\n${p1.trim()}\n$$\n`);
+  //   // 数式らしいパターン（英数字・記号のみ、=や^や√や分数など）を$...$で囲む
+  //   const mathLike = /^[\s\d\w^+\-*/=\\()[\],.√π]+$/;
+  //   replaced = replaced.split('\n').map(line => {
+  //     // 1行全体が$...$や$$...$$で囲まれている場合はそのまま
+  //     if (/^\s*\${1,2}[\s\S]*\${1,2}\s*$/.test(line.trim())) return line;
+  //     // 行中に$が2つ以上含まれる場合（既に数式が混在している場合）はそのまま
+  //     if ((line.match(/\$/g) || []).length >= 2) return line;
+  //     return mathLike.test(line.trim()) ? `$${line.trim()}$` : line;
+  //   }).join('\n');
+  //   return replaced;
+  // }
 
   // handleSubmit: 最初の質問時のみ新規履歴を作成し、以降はpatchで更新
   const handleSubmit = async (e, suggestText) => {
@@ -695,6 +568,8 @@ function App() {
         case "国語":
           subjectGuidance = "文章読解のコツや文法は、具体例を示しながら、段階的に理解を深められるよう説明してください。";
           break;
+        default:
+          subjectGuidance = "";
       }
 
       return `${personalGreeting}あなたは親切で経験豊富な${subject}の家庭教師です。
@@ -806,12 +681,9 @@ ${subjectGuidance}
     setCurrentThread(prev => ({
       ...prev,
       thread: [...prev.thread, newFollow],
-    }));
-    try {
+    }));    try {
       if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
-      const prevThread = (currentThread.thread || []).filter(t => t.subject === subject);
-      const lastN = 5;
-      const threadForApiLimited = prevThread.slice(-lastN);
+      // const prevThread = (currentThread.thread || []).filter(t => t.subject === subject); // 未使用
       const res = await axios.post(
         API_URL,
         { question: q, grade, subject, uid: user?.uid, currentThread, subjectPrompt, imageData },
@@ -876,6 +748,14 @@ ${subjectGuidance}
     }
   };
 
+  const handleImageInputWrapper = (e) => {
+    handleImageInput(e, setImageData, setLoading, setImageLoading, setImageLoadedMsg, setError);
+  };
+
+  const handleSpeechInputWrapper = () => {
+    handleSpeechInput(setQuestion, setError);
+  };
+
   const handleImageInput = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -920,15 +800,8 @@ ${subjectGuidance}
     };
     recognition.start();
   };
-
   // --- 追加: AI返答への自由入力欄 ---
-  const [followupList, setFollowupList] = useState([]); // 追加: 連続やり取りリスト
   const [followupText, setFollowupText] = useState("");
-  const [followupLoading, setFollowupLoading] = useState(false);
-  const [followupError, setFollowupError] = useState("");
-  const [threadId, setThreadId] = useState(null); // スレッドID（親質問ID）
-  // 追加: 追加質問用の画像データを分離
-  const [followupImageData, setFollowupImageData] = useState(null);
 
   // AI返答への自由入力送信
   const handleFollowup = async (e) => {
@@ -949,12 +822,9 @@ ${subjectGuidance}
     setCurrentThread(prev => ({
       ...prev,
       thread: [...prev.thread, newFollow],
-    }));
-    try {
+    }));    try {
       if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
-      const prevThread = currentThread.thread || [];
-      const lastN = 5;
-      const threadForApiLimited = prevThread.slice(-lastN);
+      // const prevThread = currentThread.thread || []; // 未使用
       const res = await axios.post(
         API_URL,
         { question: q, grade, uid: user?.uid, currentThread, imageData: followupImageData },
@@ -1103,6 +973,32 @@ ${subjectGuidance}
     setCurrentView('question');
     setScrollToFollowup(true); // 追加: followupフォームへスクロール要求
   };
+
+  // fetchHistory, saveUserProfileのラッパーを定義
+  // const fetchHistory = (uid) => fetchHistoryApi(uid, FIRESTORE_API_URL, setHistory, sortHistory);
+  const saveUserProfile = (profile, uid) => saveUserProfileApi(profile, uid, FIRESTORE_API_URL, setUserProfile, setGrade);
+  // UI
+  if (captchaRequired) {
+    return (
+      <div className="App">
+        <header className="App-header">
+          <h2>reCAPTCHA認証</h2>
+          <div style={{ maxWidth: 360, margin: '0 auto', background: '#fff', borderRadius: 8, padding: 24, boxShadow: '0 2px 8px #bfcfff' }}>
+            <p style={{ color: '#333', marginBottom: 20 }}>ロボットでないことを確認してください</p>
+            <div id="recaptcha-container"></div>
+            <button 
+              onClick={startCaptchaVerification} 
+              disabled={captchaLoading} 
+              style={{ width: '100%', marginTop: 12, padding: 12, fontSize: 16 }}
+            >
+              {captchaLoading ? '認証中...' : 'reCAPTCHA認証を開始'}
+            </button>
+            {captchaError && <div style={{ color: 'red', marginTop: 10 }}>{captchaError}</div>}
+          </div>
+        </header>
+      </div>
+    );
+  }
 
   // UI
   if (!user) {
@@ -1303,9 +1199,9 @@ ${subjectGuidance}
               <div style={{ display: 'flex', gap: 8, marginBottom: 8, justifyContent: 'center' }}>
                 <label htmlFor="imageInput" style={{ background: '#e0e7ff', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', fontWeight: 'bold' }}>
                   <span role="img" aria-label="カメラ" style={{ marginRight: 4 }}>📷</span><span style={{ fontWeight: 'bold' }}>画像から質問</span>
-                  <input id="imageInput" type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageInput} />
+                  <input id="imageInput" type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageInputWrapper} />
                 </label>
-                <button type="button" onClick={handleSpeechInput} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold' }}>
+                <button type="button" onClick={handleSpeechInputWrapper} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold' }}>
                   <span role="img" aria-label="マイク" style={{ marginRight: 4 }}>🎤</span>音声で質問
                 </button>
               </div>

@@ -18,6 +18,11 @@ function AuthForm({
       <h2 style={{ marginBottom: 16, textAlign: 'center', color: '#374151' }}>{authMode === "login" ? "ログイン" : "新規登録"}</h2><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="メールアドレス" required style={{ width: '100%', marginBottom: 12, padding: 8, fontSize: 15 }} />
       <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="パスワード" required style={{ width: '100%', marginBottom: 12, padding: 8, fontSize: 15 }} />
       {authMode === "register" && (
+        <div style={{ color: '#666', fontSize: 13, marginBottom: 8 }}>
+          ※パスワードは8文字以上、大文字・小文字・数字・記号をすべて含めてください。
+        </div>
+      )}
+      {authMode === "register" && (
         <>
           <input 
             type="text" 

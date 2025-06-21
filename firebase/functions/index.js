@@ -16,7 +16,13 @@ require("dotenv").config();
 // OpenAI API endpoint
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-3.5";
+
+// モデル設定を明確に定義
+const AI_MODELS = {
+  RAG_SUMMARY: 'gpt-3.5-turbo',      // RAG要約用
+  RESPONSE: 'gpt-4o-mini',           // 応答用
+  VISION: 'gpt-4o-mini'              // 画像認識用
+};
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -58,11 +64,10 @@ exports.aiAnswer = functions.https.onRequest(async (req, res) => {
   if (/わからない|分からない|教えて|できない|どうすれば|どうやって|ヒント/i.test(question)) {
     systemPrompt += " 質問が曖昧な場合は、どの教科・単元か、どこが分からないかを生徒に優しく聞き返してください。";
   }
-  try {
-    const response = await axios.post(
+  try {    const response = await axios.post(
         OPENAI_API_URL,
         {
-          model: OPENAI_MODEL,
+          model: AI_MODELS.RESPONSE, // gpt-4o-miniを使用
           messages: [
             {role: "system", content: systemPrompt},
             {role: "user", content: question},
@@ -161,11 +166,10 @@ exports.ragChat = functions.https.onRequest(async (req, res) => {
     const lastUser = trimmedHistory.filter(h => h.role === "user").map(h => h.content).slice(-2).join(" / ");
     const lastAssistant = trimmedHistory.filter(h => h.role === "assistant").map(h => h.content).slice(-2).join(" / ");
     const contextSummary = `直前の会話: ユーザー「${lastUser}」 / AI「${lastAssistant}」`;
-    const userMessage = `${contextSummary}\n質問: ${question}`;
-    // 2. LangChainでRAG要点抽出（RunnableSequence新API）
+    const userMessage = `${contextSummary}\n質問: ${question}`;    // 2. LangChainでRAG要点抽出（RunnableSequence新API）
     const llm = new ChatOpenAI({
       openAIApiKey: OPENAI_API_KEY,
-      modelName: "gpt-3.5-turbo",
+      modelName: AI_MODELS.RAG_SUMMARY, // gpt-3.5-turboを使用
       temperature: 0.2,
       maxTokens: 512,
     });
@@ -195,11 +199,10 @@ exports.ragChat = functions.https.onRequest(async (req, res) => {
           ]
         }
       ];
-      visionMessages.push({ role: "system", content: `[DEBUG] RAG要約: ${summary}` });
-      const response = await axios.post(
+      visionMessages.push({ role: "system", content: `[DEBUG] RAG要約: ${summary}` });      const response = await axios.post(
         OPENAI_API_URL,
         {
-          model: OPENAI_MODEL,
+          model: AI_MODELS.VISION, // gpt-4o-miniを使用（画像認識）
           messages: visionMessages,
           max_tokens: 2048,
           temperature: 0.7,
@@ -222,11 +225,10 @@ exports.ragChat = functions.https.onRequest(async (req, res) => {
         ...trimmedHistory,
         { role: "user", content: userMessage }
       ];
-      messages.push({ role: "system", content: `[DEBUG] RAG要約: ${summary}` });
-      const response = await axios.post(
+      messages.push({ role: "system", content: `[DEBUG] RAG要約: ${summary}` });      const response = await axios.post(
         OPENAI_API_URL,
         {
-          model: OPENAI_MODEL,
+          model: AI_MODELS.RESPONSE, // gpt-4o-miniを使用（テキスト応答）
           messages,
           max_tokens: 2048,
           temperature: 0.7,

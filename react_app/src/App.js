@@ -11,7 +11,6 @@ import ContactForm from './components/ContactForm';
 import ProfileView from './components/ProfileView';
 import { sortHistory, saveUserProfile as saveUserProfileApi, fetchHistory as fetchHistoryApi, fetchUserProfile as fetchUserProfileApi } from './utils/api';
 import { formatMathInput, getTimeBasedGreeting } from './utils/format';
-import { handleImageInput, handleSpeechInput } from './utils/input';
 
 // Firestoreエミュレータ/本番のURLを環境変数から取得
 const FIRESTORE_API_URL = (() => {
@@ -105,8 +104,6 @@ function App() {
   const [followupLoading, setFollowupLoading] = useState(false);
   const [followupError, setFollowupError] = useState("");
   const [followupImageData, setFollowupImageData] = useState(null);
-  const [followupImageLoading, setFollowupImageLoading] = useState(false);
-  const [followupImageLoadedMsg, setFollowupImageLoadedMsg] = useState("");
 
   // Firebase初期化
   useEffect(() => {
@@ -301,41 +298,6 @@ function App() {
     setUserProfile({ name: "", nickname: "", weakSubjects: [], preferredGrade: "小学生" });
   };
 
-  // sortHistoryをuseCallbackで先に定義
-  // const sortHistory = useCallback((historyArray) => {
-  //   return historyArray.sort((a, b) => {
-  //     const subjectComparison = a.subject.localeCompare(b.subject);
-  //     if (subjectComparison !== 0) {
-  //       return subjectComparison;
-  //     }
-  //     return b.createdAt > a.createdAt ? 1 : -1;
-  //   });
-  // }, []);
-
-  // --- ユーザープロファイルを保存 ---
-  // const saveUserProfile = useCallback(async (profile, uid = null) => {
-  //   const targetUid = uid || user?.uid;
-  //   if (!targetUid) return;
-  //   try {
-  //     const data = {
-  //       fields: {
-  //         name: { stringValue: profile.name || "" },
-  //         nickname: { stringValue: profile.nickname || "" },
-  //         weakSubjects: {
-  //           arrayValue: {
-  //             values: (profile.weakSubjects || []).map(s => ({ stringValue: s }))
-  //           }
-  //         },
-  //         preferredGrade: { stringValue: profile.preferredGrade || "小学生" },
-  //         updatedAt: { timestampValue: new Date().toISOString() }
-  //       }
-  //     };
-  //     await axios.patch(`${FIRESTORE_API_URL}/userProfiles/${targetUid}`, data);
-  //     setUserProfile(profile);
-  //   } catch (e) {
-  //     console.error('プロファイル保存エラー:', e);
-  //   }
-  // }, [user]);
   // --- Firestoreから履歴を取得（ユーザIDでフィルタリング） ---
   const fetchHistory = useCallback(async (uid) => {
     if (!uid) return;
@@ -432,37 +394,6 @@ function App() {
     }
   }, [setHistory]);
 
-  // --- ユーザープロファイルを取得 ---
-  // const fetchUserProfile = useCallback(async (uid) => {
-  //   if (!uid) return;
-  //   try {
-  //     const res = await axios.get(`${FIRESTORE_API_URL}/userProfiles/${uid}`);
-  //     if (res.data.fields) {
-  //       const profile = {
-  //         name: res.data.fields.name?.stringValue || "",
-  //         nickname: res.data.fields.nickname?.stringValue || "",
-  //         weakSubjects: res.data.fields.weakSubjects?.arrayValue?.values?.map(v => v.stringValue) || [],
-  //         preferredGrade: res.data.fields.preferredGrade?.stringValue || "小学生"
-  //       };
-  //       setUserProfile(profile);
-  //       setGrade(profile.preferredGrade); // 学年を設定
-  //     }
-  //   } catch (e) {
-  //     // プロファイルが存在しない場合は初期値で作成
-  //     console.log('ユーザープロファイルが見つかりません。初期値で作成します。');
-  //     const defaultProfile = {
-  //       name: "",
-  //       nickname: "",
-  //       weakSubjects: [],
-  //       preferredGrade: "小学生"
-  //     };
-  //     try {
-  //       await saveUserProfile(defaultProfile, uid);
-  //       setGrade(defaultProfile.preferredGrade);
-  //     } catch (createError) {
-  //       console.error('初期プロファイル作成エラー:', createError);
-  //     }
-  //   }  }, [saveUserProfile]);
   // ソート条件が変わった時に履歴を再ソート
   useEffect(() => {
     if (history.length > 0) {
@@ -485,26 +416,6 @@ function App() {
     grade: '小学生',
     createdAt: '',
   });
-
-  // 数式を自動で$...$や$$...$$で囲む（[ ... ]→$$...$$変換も対応）
-  // function formatMathInput(input) {
-  //   if (!input) return input;
-  //   // すでに$...$や$$...$$で囲まれている場合はそのまま
-  //   // → 1行全体が$...$または$$...$$で囲まれている場合のみスキップ
-  //   if (/^\s*\${1,2}[\s\S]*\${1,2}\s*$/.test(input.trim())) return input;
-  //   // [ ... ] で囲まれた行を $$...$$ に変換（複数行対応）
-  //   let replaced = input.replace(/\n?\[([\s\S]*?)\]\n?/g, (match, p1) => `\n$$\n${p1.trim()}\n$$\n`);
-  //   // 数式らしいパターン（英数字・記号のみ、=や^や√や分数など）を$...$で囲む
-  //   const mathLike = /^[\s\d\w^+\-*/=\\()[\],.√π]+$/;
-  //   replaced = replaced.split('\n').map(line => {
-  //     // 1行全体が$...$や$$...$$で囲まれている場合はそのまま
-  //     if (/^\s*\${1,2}[\s\S]*\${1,2}\s*$/.test(line.trim())) return line;
-  //     // 行中に$が2つ以上含まれる場合（既に数式が混在している場合）はそのまま
-  //     if ((line.match(/\$/g) || []).length >= 2) return line;
-  //     return mathLike.test(line.trim()) ? `$${line.trim()}$` : line;
-  //   }).join('\n');
-  //   return replaced;
-  // }
 
   // handleSubmit: 最初の質問時のみ新規履歴を作成し、以降はpatchで更新
   const handleSubmit = async (e, suggestText) => {
@@ -691,55 +602,54 @@ ${subjectGuidance}
       );
       setAnswer(res.data.answer);
       setCurrentAnswerChunks([res.data.answer]);
-      setCurrentChunkIndex(1);
-      setCurrentThread(prev => {
+      setCurrentChunkIndex(1);      setCurrentThread(prev => {
         const updatedThread = [...prev.thread];
         if (updatedThread.length > 0 && updatedThread[updatedThread.length - 1].question === q) {
           updatedThread[updatedThread.length - 1].answer = res.data.answer;
         }
+        
+        // Firestoreの既存ドキュメントをpatchで更新
+        if (FIRESTORE_API_URL && user?.uid && threadId) {
+          axios.patch(
+            `${FIRESTORE_API_URL}/questionThreads/${threadId}`,
+            {
+              fields: {
+                question: { stringValue: currentThread.question },
+                answer: { stringValue: currentThread.answer },
+                createdAt: { stringValue: currentThread.createdAt },
+                grade: { stringValue: currentThread.grade },
+                subject: { stringValue: currentThread.subject || subject },
+                uid: { stringValue: user.uid },
+                thread: {
+                  arrayValue: {
+                    values: updatedThread.map(t => ({
+                      mapValue: {
+                        fields: {
+                          q: { stringValue: t.question },
+                          a: { stringValue: t.answer },
+                          createdAt: { stringValue: t.createdAt },
+                          subject: { stringValue: t.subject || subject },
+                        }
+                      }
+                    }))
+                  }
+                },
+              }
+            },
+            { headers: { 'Content-Type': 'application/json' } }
+          ).then(() => {
+            fetchHistory(user.uid);
+          }).catch(patchErr => {
+            console.error('Firestore patch error:', patchErr);
+          });
+        }
+        
         return {
           ...prev,
           thread: updatedThread,
         };
       });
       setImageData(null); // 送信後のみクリア
-      // Firestoreの既存ドキュメントをpatchで更新
-      if (FIRESTORE_API_URL && user?.uid && threadId) {
-        await axios.patch(
-          `${FIRESTORE_API_URL}/questionThreads/${threadId}`,
-          {
-            fields: {
-              question: { stringValue: currentThread.question },
-              answer: { stringValue: res.data.answer },
-              createdAt: { stringValue: currentThread.createdAt },
-              grade: { stringValue: currentThread.grade },
-              subject: { stringValue: currentThread.subject || subject },
-              uid: { stringValue: user.uid },
-              thread: {
-                arrayValue: {
-                  values: ([...currentThread.thread, {
-                    question: q,
-                    answer: res.data.answer,
-                    createdAt: new Date().toISOString(),
-                    subject,
-                  }]).map(t => ({
-                    mapValue: {
-                      fields: {
-                        q: { stringValue: t.question },
-                        a: { stringValue: t.answer },
-                        createdAt: { stringValue: t.createdAt },
-                        subject: { stringValue: t.subject || subject },
-                      }
-                    }
-                  }))
-                }
-              },
-            }
-          },
-          { headers: { 'Content-Type': 'application/json' } }
-        );
-        fetchHistory(user.uid);
-      }
     } catch (err) {
       setError("AI回答の取得に失敗しました: " + (err?.message || ''));
       console.error('handleSubmit error', err);
@@ -832,55 +742,54 @@ ${subjectGuidance}
       );
       setAnswer(res.data.answer);
       setCurrentAnswerChunks([res.data.answer]);
-      setCurrentChunkIndex(1);
-      setCurrentThread(prev => {
+      setCurrentChunkIndex(1);      setCurrentThread(prev => {
         const updatedThread = [...prev.thread];
         if (updatedThread.length > 0 && updatedThread[updatedThread.length - 1].question === q) {
           updatedThread[updatedThread.length - 1].answer = res.data.answer;
         }
+        
+        // Firestoreの既存ドキュメントをpatchで更新
+        if (FIRESTORE_API_URL && user?.uid && threadId) {
+          axios.patch(
+            `${FIRESTORE_API_URL}/questionThreads/${threadId}`,
+            {
+              fields: {
+                question: { stringValue: currentThread.question },
+                answer: { stringValue: currentThread.answer },
+                createdAt: { stringValue: currentThread.createdAt },
+                grade: { stringValue: currentThread.grade },
+                subject: { stringValue: currentThread.subject || subject },
+                uid: { stringValue: user.uid },
+                thread: {
+                  arrayValue: {
+                    values: updatedThread.map(t => ({
+                      mapValue: {
+                        fields: {
+                          q: { stringValue: t.question },
+                          a: { stringValue: t.answer },
+                          createdAt: { stringValue: t.createdAt },
+                          subject: { stringValue: t.subject || subject },
+                        }
+                      }
+                    }))
+                  }
+                },
+              }
+            },
+            { headers: { 'Content-Type': 'application/json' } }
+          ).then(() => {
+            fetchHistory(user.uid);
+          }).catch(patchErr => {
+            console.error('Firestore patch error:', patchErr);
+          });
+        }
+        
         return {
           ...prev,
           thread: updatedThread,
         };
       });
       setFollowupImageData(null); // 送信後のみクリア
-      // Firestoreの既存ドキュメントをpatchで更新
-      if (FIRESTORE_API_URL && user?.uid && threadId) {
-        await axios.patch(
-          `${FIRESTORE_API_URL}/questionThreads/${threadId}`,
-          {
-            fields: {
-              question: { stringValue: currentThread.question },
-              answer: { stringValue: res.data.answer },
-              createdAt: { stringValue: currentThread.createdAt },
-              grade: { stringValue: currentThread.grade },
-              subject: { stringValue: currentThread.subject || subject },
-              uid: { stringValue: user.uid },
-              thread: {
-                arrayValue: {
-                  values: ([...currentThread.thread, {
-                    question: q,
-                    answer: res.data.answer,
-                    createdAt: new Date().toISOString(),
-                    subject,
-                  }]).map(t => ({
-                    mapValue: {
-                      fields: {
-                        q: { stringValue: t.question },
-                        a: { stringValue: t.answer },
-                        createdAt: { stringValue: t.createdAt },
-                        subject: { stringValue: t.subject || subject },
-                      }
-                    }
-                  }))
-                }
-              },
-            }
-          },
-          { headers: { 'Content-Type': 'application/json' } }
-        );
-        fetchHistory(user.uid);
-      }
     } catch (err) {
       setFollowupError("AIへの再質問に失敗しました: " + (err?.message || ''));
       console.error('handleFollowup error', err);
@@ -975,7 +884,6 @@ ${subjectGuidance}
   };
 
   // fetchHistory, saveUserProfileのラッパーを定義
-  // const fetchHistory = (uid) => fetchHistoryApi(uid, FIRESTORE_API_URL, setHistory, sortHistory);
   const saveUserProfile = (profile, uid) => saveUserProfileApi(profile, uid, FIRESTORE_API_URL, setUserProfile, setGrade);
   // UI
   if (captchaRequired) {

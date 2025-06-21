@@ -70,7 +70,7 @@ function ChatBox({
             )}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-            <div className="followup-bubble-ai">{currentThread.answer !== '' ? <FormattedText text={currentThread.answer} /> : <span style={{ color: '#888' }}>AIが考え中...</span>}</div>
+            <div className="followup-bubble-ai">{currentThread.answer !== '' ? <FormattedText text={currentThread.answer} /> : <span style={{ color: '#888' }}>考え中...</span>}</div>
           </div>
           {/* 以降のやり取りを交互に表示（ユーザー→AI→ユーザー→AI...） */}
           {currentThread.thread.length > 0 && currentThread.thread.map((item, idx) => (
@@ -83,7 +83,7 @@ function ChatBox({
                 )}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <div className="followup-bubble-ai">{item.answer !== '' ? <FormattedText text={item.answer} /> : <span style={{ color: '#888' }}>AIが考え中...</span>}</div>
+                <div className="followup-bubble-ai">{item.answer !== '' ? <FormattedText text={item.answer} /> : <span style={{ color: '#888' }}>考え中...</span>}</div>
               </div>
             </React.Fragment>
           ))}

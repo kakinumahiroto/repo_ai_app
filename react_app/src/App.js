@@ -171,17 +171,28 @@ function App() {
     } catch (err) {
       setAuthError(err.message);
     }
-  };
-  // Firebase認証の永続化設定（3日間）
+  };  // Firebase認証の永続化設定（3日間）
   useEffect(() => {
     if (firebase.auth().currentUser) return;
     firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
     // セッションの有効期限を3日間に設定
     firebase.auth().onAuthStateChanged(user => {
+      console.log('=== Firebase Auth State Changed ===');
+      console.log('User:', user ? { uid: user.uid, email: user.email, emailVerified: user.emailVerified } : 'null');
+      
       if (user) {
         user.getIdTokenResult().then(idTokenResult => {
+          console.log('Token result:', {
+            token: idTokenResult.token ? 'present' : 'missing',
+            expirationTime: idTokenResult.expirationTime,
+            issuedAtTime: idTokenResult.issuedAtTime,
+            signInProvider: idTokenResult.signInProvider
+          });
+          
           const expiresIn = 3 * 24 * 60 * 60 * 1000; // 3日
           window.localStorage.setItem('firebaseSessionExpires', Date.now() + expiresIn);
+        }).catch(tokenError => {
+          console.error('Failed to get ID token:', tokenError);
         });
       }
     });
@@ -442,14 +453,46 @@ ${subjectGuidance}
         createdAt,
       };
       setCurrentThread(newThread);
-      setQuestion("");
-      try {
+      setQuestion("");      try {
         if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
+        
+        // Firebase認証トークンを取得
+        const token = await user.getIdToken();
+        if (!token) {
+          setError('認証が必要です。再ログインしてください。');
+          setLoading(false);
+          return;
+        }
+
+        // === デバッグログ追加 ===
+        console.log('=== API呼び出し前のデバッグ情報 ===');
+        console.log('User:', user ? { uid: user.uid, email: user.email } : 'null');
+        console.log('API_URL:', API_URL);
+        console.log('Token (first 20 chars):', token ? token.substring(0, 20) + '...' : 'null');
+        console.log('Request body:', {
+          question: q ? q.substring(0, 50) + '...' : 'null',
+          grade,
+          subject,
+          uid: user?.uid,
+          hasImageData: !!imageData,
+          hasCurrentThread: !!newThread
+        });
+
         const res = await axios.post(
           API_URL,
           { question: q, grade, subject, uid: user?.uid, currentThread: newThread, subjectPrompt, imageData },
-          { headers: { 'Content-Type': 'application/json' } }
+          { 
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            } 
+          }
         );
+
+        console.log('=== API呼び出し成功 ===');
+        console.log('Response status:', res.status);
+        console.log('Response data keys:', Object.keys(res.data));
+        
         const chunks = res.data.answer.match(/([\s\S]{1,500})(?=\n|$)/g) || [res.data.answer];
         setCurrentAnswerChunks(chunks);
         setCurrentChunkIndex(1);
@@ -479,7 +522,19 @@ ${subjectGuidance}
           fetchHistory(user.uid);
         }
       } catch (err) {
-        setError("AI回答の取得に失敗しました: " + (err?.message || ''));
+        console.error('=== API呼び出しエラー ===');
+        console.error('Error type:', err.constructor.name);
+        console.error('Error message:', err.message);
+        if (err.response) {
+          console.error('Response status:', err.response.status);
+          console.error('Response data:', err.response.data);
+          console.error('Response headers:', err.response.headers);
+        } else {
+          console.error('Network error or request not sent');
+        }
+        console.error('Full error object:', err);
+        
+        setError("AI回答の取得に失敗しました: " + (err?.response?.data?.error || err?.message || ''));
         console.error('handleSubmit error', err);
       } finally {
         setLoading(false);
@@ -499,12 +554,37 @@ ${subjectGuidance}
       thread: [...prev.thread, newFollow],
     }));    try {
       if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
-      // const prevThread = (currentThread.thread || []).filter(t => t.subject === subject); // 未使用
+      
+      // Firebase認証トークンを取得
+      const token = await user.getIdToken();
+      if (!token) {
+        setError('認証が必要です。再ログインしてください。');
+        setLoading(false);
+        return;
+      }      // === 継続質問のデバッグログ ===
+      console.log('=== 継続質問のAPI呼び出し前 ===');
+      console.log('User UID:', user?.uid);
+      console.log('Token (first 20 chars):', token ? token.substring(0, 20) + '...' : 'null');
+      console.log('Thread ID:', threadId);
+      console.log('Current thread:', currentThread ? {
+        question: currentThread.question?.substring(0, 50) + '...',
+        answer: currentThread.answer ? 'present' : 'missing',
+        threadLength: currentThread.thread?.length || 0
+      } : 'null');
+
       const res = await axios.post(
         API_URL,
         { question: q, grade, subject, uid: user?.uid, currentThread, subjectPrompt, imageData },
-        { headers: { 'Content-Type': 'application/json' } }
+        { 
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          } 
+        }
       );
+
+      console.log('=== 継続質問のAPI呼び出し成功 ===');
+      console.log('Response status:', res.status);
       setAnswer(res.data.answer);
       setCurrentAnswerChunks([res.data.answer]);
       setCurrentChunkIndex(1);      setCurrentThread(prev => {
@@ -552,12 +632,20 @@ ${subjectGuidance}
         return {
           ...prev,
           thread: updatedThread,
-        };
-      });
+        };      });
       setImageData(null); // 送信後のみクリア
-    } catch (err) {
-      setError("AI回答の取得に失敗しました: " + (err?.message || ''));
-      console.error('handleSubmit error', err);
+    } catch (error) {
+      console.error('=== 継続質問エラー ===');
+      console.error('Error type:', error.constructor.name);
+      console.error('Error message:', error.message);
+      if (error.response) {
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+      }
+      console.error('Full error object:', error);
+      
+      setError("AI回答の取得に失敗しました: " + (error?.response?.data?.error || error?.message || ''));
+      console.error('handleSubmit error', error);
     } finally {
       setLoading(false);
     }
@@ -639,11 +727,25 @@ ${subjectGuidance}
       thread: [...prev.thread, newFollow],
     }));    try {
       if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
+      
+      // Firebase認証トークンを取得
+      const token = await user.getIdToken();
+      if (!token) {
+        setFollowupError('認証が必要です。再ログインしてください。');
+        setFollowupLoading(false);
+        return;
+      }
+
       // const prevThread = currentThread.thread || []; // 未使用
       const res = await axios.post(
         API_URL,
         { question: q, grade, uid: user?.uid, currentThread, imageData: followupImageData },
-        { headers: { 'Content-Type': 'application/json' } }
+        { 
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          } 
+        }
       );
       setAnswer(res.data.answer);
       setCurrentAnswerChunks([res.data.answer]);
@@ -789,6 +891,20 @@ ${subjectGuidance}
   };
   // fetchHistory, saveUserProfileのラッパーを定義
   const saveUserProfile = (profile, uid) => saveUserProfileApi(profile, uid, FIRESTORE_API_URL, setUserProfile, setGrade);
+
+  // Firebase認証トークンを取得する関数
+  const getAuthToken = async () => {
+    try {
+      if (user) {
+        return await user.getIdToken();
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to get auth token:', error);
+      setError('認証エラーが発生しました。再ログインしてください。');
+      return null;
+    }
+  };
 
   // UI
   if (!user) {

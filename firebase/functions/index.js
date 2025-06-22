@@ -25,7 +25,76 @@ const AI_MODELS = {
 };
 
 if (!admin.apps.length) {
-  admin.initializeApp();
+  try {
+    logger.info('Firebase Admin SDK 初期化開始...');
+    admin.initializeApp();
+    logger.info('Firebase Admin SDK 初期化成功');
+    logger.info('Project ID:', admin.app().options.projectId || 'default');
+  } catch (error) {
+    logger.error('Firebase Admin SDK 初期化失敗:', error);
+  }
+} else {
+  logger.info('Firebase Admin SDK は既に初期化済み');
+}
+
+// --- Firebase認証トークン検証ミドルウェア ---
+async function verifyFirebaseToken(req) {
+  try {
+    logger.info('=== 認証チェック開始 ===');
+    logger.info('Request method:', req.method);
+    logger.info('Request URL:', req.url);
+    
+    // Emulator環境を検出
+    const isEmulator = process.env.FUNCTIONS_EMULATOR === 'true' || 
+                      process.env.NODE_ENV === 'development';
+    
+    logger.info('Environment check:', {
+      FUNCTIONS_EMULATOR: process.env.FUNCTIONS_EMULATOR,
+      NODE_ENV: process.env.NODE_ENV,
+      isEmulator: isEmulator
+    });
+    
+    if (isEmulator) {
+      logger.info('=== Emulator環境のため認証チェックをスキップ ===');
+      // 疑似ユーザー情報を設定（リクエストボディのuidを使用）
+      const mockUser = {
+        uid: req.body.uid || 'emulator-user',
+        email: 'emulator@example.com',
+        email_verified: true
+      };
+      logger.info('疑似ユーザー情報を設定:', mockUser);
+      return mockUser;
+    }
+    
+    const authHeader = req.headers.authorization;
+    logger.info('Authorization header:', authHeader ? 'present' : 'missing');
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      logger.error('認証ヘッダーが不正または欠如');
+      throw new Error('No valid authorization header provided');
+    }
+
+    const idToken = authHeader.split('Bearer ')[1];
+    logger.info('IDトークン取得:', idToken ? 'success' : 'failed');
+    logger.info('IDトークン（最初の20文字）:', idToken ? idToken.substring(0, 20) + '...' : 'none');
+    
+    logger.info('Firebase Admin SDK でトークン検証開始...');
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    logger.info('トークン検証成功:', {
+      uid: decodedToken.uid,
+      email: decodedToken.email,
+      emailVerified: decodedToken.email_verified
+    });
+    
+    return decodedToken;
+  } catch (error) {
+    logger.error('=== Token verification failed ===');
+    logger.error('Error type:', error.constructor.name);
+    logger.error('Error message:', error.message);
+    logger.error('Error code:', error.code);
+    logger.error('Full error:', error);
+    throw new Error('Token verification failed: ' + error.message);
+  }
 }
 
 // --- CORSヘッダー付与ユーティリティ ---
@@ -36,13 +105,50 @@ function setCORSHeaders(res) {
 }
 
 exports.aiAnswer = functions.https.onRequest(async (req, res) => {
+  logger.info('=== aiAnswer エンドポイント呼び出し ===');
+  logger.info('Request method:', req.method);
+  logger.info('Request headers:', {
+    'content-type': req.headers['content-type'],
+    'authorization': req.headers.authorization ? 'Bearer [token present]' : 'missing',
+    'origin': req.headers.origin
+  });
+  
   setCORSHeaders(res);
   if (req.method === "OPTIONS") {
+    logger.info('OPTIONS request - returning 204');
     res.status(204).send("");
     return;
   }
+
+  // Firebase認証トークン検証
+  try {
+    logger.info('認証トークン検証開始...');
+    const user = await verifyFirebaseToken(req);
+    req.user = user;
+    logger.info('認証成功 - ユーザー:', { uid: user.uid, email: user.email });
+  } catch (error) {
+    logger.error('認証失敗:', error.message);
+    return res.status(401).json({ 
+      error: 'Unauthorized: ' + error.message 
+    });
+  }
+
   logger.info("AI Answer endpoint called");
   const {question, grade, uid} = req.body;
+  logger.info('リクエストデータ:', {
+    uid: uid,
+    question: question ? question.substring(0, 50) + '...' : 'missing',
+    grade: grade
+  });
+
+  // UIDの一致確認
+  if (req.user.uid !== uid) {
+    logger.error('UID不一致:', { tokenUID: req.user.uid, bodyUID: uid });
+    return res.status(403).json({ 
+      error: 'Forbidden: UID mismatch' 
+    });
+  }
+
   if (!question) {
     setCORSHeaders(res);
     return res.status(400).json({error: "question is required"});
@@ -115,17 +221,57 @@ const { RunnableSequence } = require("langchain/schema/runnable");
 
 // --- v1: region指定なしでCORS完全対応 ---
 exports.ragChat = functions.https.onRequest(async (req, res) => {
+  logger.info('=== ragChat エンドポイント呼び出し ===');
+  logger.info('Request method:', req.method);
+  logger.info('Request headers:', {
+    'content-type': req.headers['content-type'],
+    'authorization': req.headers.authorization ? 'Bearer [token present]' : 'missing',
+    'origin': req.headers.origin
+  });
+  logger.info('Request body keys:', Object.keys(req.body || {}));
+  
   setCORSHeaders(res);
   if (req.method === "OPTIONS") {
+    logger.info('OPTIONS request - returning 204');
     res.status(204).send("");
     return;
   }
+
+  // Firebase認証トークン検証
+  try {
+    logger.info('認証トークン検証開始...');
+    const user = await verifyFirebaseToken(req);
+    req.user = user;
+    logger.info('認証成功 - ユーザー:', { uid: user.uid, email: user.email });
+  } catch (error) {
+    logger.error('認証失敗:', error.message);
+    return res.status(401).json({ 
+      error: 'Unauthorized: ' + error.message 
+    });
+  }
+
   const { uid, question, currentThread, imageData } = req.body;
+  logger.info('リクエストデータ:', {
+    uid: uid,
+    question: question ? question.substring(0, 50) + '...' : 'missing',
+    hasCurrentThread: !!currentThread,
+    hasImageData: !!imageData
+  });
+
+  // UIDの一致確認
+  if (req.user.uid !== uid) {
+    logger.error('UID不一致:', { tokenUID: req.user.uid, bodyUID: uid });
+    return res.status(403).json({ 
+      error: 'Forbidden: UID mismatch' 
+    });
+  }
+  logger.info('UID一致確認完了');
+
   if (!uid || !question) {
     setCORSHeaders(res);
     return res.status(400).json({ error: "uid and question are required" });
-  }
-  try {
+  }  try {
+    logger.info('=== Firestore履歴取得開始 ===');
     // 1. Firestoreから最新10件の履歴取得
     const snap = await admin.firestore()
       .collection("questionThreads")
@@ -133,6 +279,9 @@ exports.ragChat = functions.https.onRequest(async (req, res) => {
       .orderBy("createdAt", "desc")
       .limit(10)
       .get();
+    
+    logger.info('Firestore履歴取得完了:', { documentCount: snap.size });
+    
     let history = [];
     snap.forEach(doc => {
       const d = doc.data();
@@ -149,8 +298,12 @@ exports.ragChat = functions.https.onRequest(async (req, res) => {
         });
       }
     });
+    
     history = history.reverse();
+    logger.info('履歴の初期長さ:', history.length);
+    
     if (currentThread && currentThread.question) {
+      logger.info('現在のスレッドを履歴に追加');
       history.push({ role: "user", content: currentThread.question });
       if (currentThread.answer) {
         history.push({ role: "assistant", content: currentThread.answer });
@@ -162,11 +315,16 @@ exports.ragChat = functions.https.onRequest(async (req, res) => {
         });
       }
     }
+    
     const trimmedHistory = history.slice(-16);
+    logger.info('トリミング後の履歴長さ:', trimmedHistory.length);
+    
     const lastUser = trimmedHistory.filter(h => h.role === "user").map(h => h.content).slice(-2).join(" / ");
     const lastAssistant = trimmedHistory.filter(h => h.role === "assistant").map(h => h.content).slice(-2).join(" / ");
     const contextSummary = `直前の会話: ユーザー「${lastUser}」 / AI「${lastAssistant}」`;
-    const userMessage = `${contextSummary}\n質問: ${question}`;    // 2. LangChainでRAG要点抽出（RunnableSequence新API）
+    const userMessage = `${contextSummary}\n質問: ${question}`;
+    
+    logger.info('=== RAG要約処理開始 ===');// 2. LangChainでRAG要点抽出（RunnableSequence新API）
     const llm = new ChatOpenAI({
       openAIApiKey: OPENAI_API_KEY,
       modelName: AI_MODELS.RAG_SUMMARY, // gpt-3.5-turboを使用
@@ -181,12 +339,14 @@ exports.ragChat = functions.https.onRequest(async (req, res) => {
       prompt,
       llm,
       async (output) => output.content // ChatOpenAIの返却値からcontentのみ抽出
-    ]);
-    const historyText = trimmedHistory.map(h => `${h.role}: ${h.content}`).join("\n");
+    ]);    const historyText = trimmedHistory.map(h => `${h.role}: ${h.content}`).join("\n");
     const summary = await ragChain.invoke(historyText);
+    logger.info('RAG要約完了:', summary ? 'success' : 'empty');
+    
     // --- 画像データがある場合はOpenAI Vision APIで画像＋テキストプロンプト ---
     let aiMessage;
     if (imageData) {
+      logger.info('=== Vision APIで画像処理開始 ===');
       // gpt-4o, gpt-4-vision-previewはimagesプロパティで画像を受け付ける
       const visionMessages = [
         { role: "system", content: `会話履歴の要点: ${summary}` },
@@ -199,7 +359,10 @@ exports.ragChat = functions.https.onRequest(async (req, res) => {
           ]
         }
       ];
-      visionMessages.push({ role: "system", content: `[DEBUG] RAG要約: ${summary}` });      const response = await axios.post(
+      visionMessages.push({ role: "system", content: `[DEBUG] RAG要約: ${summary}` });
+      
+      logger.info('Vision API呼び出し開始...');
+      const response = await axios.post(
         OPENAI_API_URL,
         {
           model: AI_MODELS.VISION, // gpt-4o-miniを使用（画像認識）
@@ -218,14 +381,19 @@ exports.ragChat = functions.https.onRequest(async (req, res) => {
         },
       );
       aiMessage = response.data.choices[0].message.content;
+      logger.info('Vision API呼び出し成功');
     } else {
+      logger.info('=== テキストAPI呼び出し開始 ===');
       // ...従来通り...
       const messages = [
         { role: "system", content: `会話履歴の要点: ${summary}` },
         ...trimmedHistory,
         { role: "user", content: userMessage }
       ];
-      messages.push({ role: "system", content: `[DEBUG] RAG要約: ${summary}` });      const response = await axios.post(
+      messages.push({ role: "system", content: `[DEBUG] RAG要約: ${summary}` });
+      
+      logger.info('OpenAI API呼び出し開始...');
+      const response = await axios.post(
         OPENAI_API_URL,
         {
           model: AI_MODELS.RESPONSE, // gpt-4o-miniを使用（テキスト応答）
@@ -244,7 +412,11 @@ exports.ragChat = functions.https.onRequest(async (req, res) => {
         },
       );
       aiMessage = response.data.choices[0].message.content;
+      logger.info('OpenAI API呼び出し成功');
     }
+    
+    logger.info('=== ragChat処理完了 ===');
+    logger.info('AI回答生成:', aiMessage ? 'success' : 'empty');
     res.json({ answer: aiMessage, rag_summary: summary, debug_rag_summary: summary });
   } catch (err) {
     logger.error("RAG Chat API error", err);

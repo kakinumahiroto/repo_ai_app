@@ -6,24 +6,52 @@ function ContactForm({ onClose, user }) {
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleSubmit = async (e) => {
+  const [error, setError] = useState('');  const handleSubmit = async (e) => {
     e.preventDefault();
     setSending(true);
     setError('');
     try {
+      // Firebase認証トークンを取得
+      const token = user ? await user.getIdToken() : null;
+      if (!token) {
+        throw new Error('認証が必要です。再ログインしてください。');
+      }
+
+      // === ContactForm デバッグログ ===
+      console.log('=== Contact API呼び出し前 ===');
+      console.log('User:', user ? { uid: user.uid, email: user.email } : 'null');
+      console.log('CONTACT_API_URL:', CONTACT_API_URL);
+      console.log('Token (first 20 chars):', token ? token.substring(0, 20) + '...' : 'null');
+      console.log('Request body:', { subject, body: body.substring(0, 50) + '...' });
+
       const res = await fetch(CONTACT_API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
           ...(user?.email ? { 'x-user-email': user.email } : {})
         },
         body: JSON.stringify({ subject, body }),
       });
-      if (!res.ok) throw new Error('送信に失敗しました');
+
+      console.log('=== Contact API呼び出し結果 ===');
+      console.log('Response status:', res.status);
+      console.log('Response ok:', res.ok);
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('Error response:', errorText);
+        throw new Error('送信に失敗しました');
+      }
+      
+      console.log('Contact form submission successful');
       setSent(true);
     } catch (err) {
+      console.error('=== Contact form submission error ===');
+      console.error('Error type:', err.constructor.name);
+      console.error('Error message:', err.message);
+      console.error('Full error object:', err);
+      
       setError('送信に失敗しました: ' + err.message);
     } finally {
       setSending(false);

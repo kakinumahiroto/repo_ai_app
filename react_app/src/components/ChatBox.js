@@ -124,7 +124,12 @@ function ChatBox({
               ref={followupInputRef}
               type="text"
               value={followupText}
-              onChange={e => setFollowupText(e.target.value)}
+              onChange={e => {
+                if (e.target.value.length <= 1000) {
+                  setFollowupText(e.target.value);
+                }
+              }}
+              maxLength={1000}
               placeholder="AIへの追加質問や返答を入力..."
               disabled={followupLoading}
               style={{ paddingRight: followupImageData && !imageLoading ? 36 : undefined }}

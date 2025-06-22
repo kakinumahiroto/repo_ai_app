@@ -90,11 +90,8 @@ function App() {
   });
   const [imageLoading, setImageLoading] = useState(false);
   const [imageLoadedMsg, setImageLoadedMsg] = useState("");
-  const [registerMsg, setRegisterMsg] = useState(""); // 新規登録メッセージ用ステート
-  // reCAPTCHA認証用状態
-  const [captchaRequired, setCaptchaRequired] = useState(false);
+  const [registerMsg, setRegisterMsg] = useState(""); // 新規登録メッセージ用ステート  // reCAPTCHA認証用状態（v3用に簡素化）
   const [captchaError, setCaptchaError] = useState("");
-  const [captchaLoading, setCaptchaLoading] = useState(false);
   // 新規追加: 曖昧な質問時の誘導表示
   const [showPromptHelp] = useState(false); // setShowPromptHelp未使用なので削除
   const [followupList, setFollowupList] = useState([]);
@@ -104,8 +101,7 @@ function App() {
   const [followupLoading, setFollowupLoading] = useState(false);
   const [followupError, setFollowupError] = useState("");
   const [followupImageData, setFollowupImageData] = useState(null);
-
-  // Firebase初期化
+  // Firebase初期化とreCAPTCHA v3設定
   useEffect(() => {
     if (!firebase.apps.length) {
       firebase.initializeApp({
@@ -114,12 +110,20 @@ function App() {
         projectId: 'ai-app-96b95',
       });
     }
-  }, []);
-  // メールアドレスでログイン/新規登録
-  const handleAuth = async (e) => {    e.preventDefault();
+    
+    // reCAPTCHA v3の初期化
+    if (window.grecaptcha) {
+      window.grecaptcha.ready(() => {
+        console.log('reCAPTCHA v3 is ready');
+      });
+    }
+  }, []);  // メールアドレスでログイン/新規登録（v3対応）
+  const handleAuth = async (e) => {
+    e.preventDefault();
     setAuthError("");
     setRegisterMsg("");
     setCaptchaError("");
+    
     // パスワードバリデーション
     if (authMode === "register" || authMode === "login") {
       const pwErr = validatePassword(password);
@@ -127,20 +131,24 @@ function App() {
         setAuthError(pwErr);
         return;
       }
+    }    // reCAPTCHA v3トークンの取得
+    let recaptchaToken = null;
+    try {
+      if (window.grecaptcha) {
+        recaptchaToken = await window.grecaptcha.execute('6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI', {action: 'login'});
+      }
+    } catch (recaptchaErr) {
+      console.warn('reCAPTCHA v3 token generation failed:', recaptchaErr);
+      setCaptchaError('認証処理でエラーが発生しました。再試行してください。');
     }
+
     try {
       if (authMode === "login") {
         const res = await firebase.auth().signInWithEmailAndPassword(email, password);
-        // reCAPTCHA認証が必要かチェック
-        if (res.user && !res.user.emailVerified) {
-          setCaptchaRequired(true);
-          setUser(res.user); // 一時的にセット
-          return;
-        }
         setUser(res.user);
       } else {
         const res = await firebase.auth().createUserWithEmailAndPassword(email, password);
-          // 新規登録時にプロファイルを保存（デフォルト学年設定）
+        // 新規登録時にプロファイルを保存（デフォルト学年設定）
         const profileData = {
           name: "",
           nickname: nickname.trim(),
@@ -164,107 +172,6 @@ function App() {
       setAuthError(err.message);
     }
   };
-
-  // MFA: 電話番号認証開始  const recaptchaVerifierRef = useRef(null);
-  const recaptchaVerifierRef = useRef(null);
-    // reCAPTCHA認証処理（タイムアウト対策強化）
-  const startCaptchaVerification = async () => {
-    setCaptchaError("");
-    setCaptchaLoading(true);
-    
-    // DOM要素の存在確認（少し待ってから再確認）
-    const checkContainer = () => {
-      return new Promise((resolve) => {
-        const container = document.getElementById('recaptcha-container');
-        if (container) {
-          resolve(true);
-        } else {
-          setTimeout(() => {
-            resolve(!!document.getElementById('recaptcha-container'));
-          }, 100);
-        }
-      });
-    };
-    
-    const containerExists = await checkContainer();
-    if (!containerExists) {
-      setCaptchaError('reCAPTCHAの初期化に失敗しました。ページを再読み込みしてください。');
-      setCaptchaLoading(false);
-      return;
-    }
-    
-    try {
-      // 既存インスタンスがあればクリア
-      if (recaptchaVerifierRef.current) {
-        try { 
-          recaptchaVerifierRef.current.clear(); 
-        } catch (e) {
-          console.warn('reCAPTCHA clear error:', e);
-        }
-        recaptchaVerifierRef.current = null;
-      }
-      
-      // タイムアウト設定付きでreCAPTCHA初期化
-      const initRecaptcha = () => {
-        return new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error('reCAPTCHA初期化がタイムアウトしました'));
-          }, 10000); // 10秒でタイムアウト
-          
-          try {            recaptchaVerifierRef.current = new firebase.auth.RecaptchaVerifier('recaptcha-container', {
-              size: 'normal',
-              callback: (response) => {
-                clearTimeout(timeout);
-                // 認証成功時の処理を安全に実行
-                setTimeout(() => {
-                  try {
-                    setCaptchaRequired(false);
-                    setCaptchaLoading(false);
-                    // 認証後にreCAPTCHAをクリア
-                    if (recaptchaVerifierRef.current) {
-                      try { recaptchaVerifierRef.current.clear(); } catch (e) {}
-                      recaptchaVerifierRef.current = null;
-                    }
-                    resolve(response);
-                  } catch (e) {
-                    console.error('reCAPTCHA callback error:', e);
-                    resolve(response); // エラーでも成功として扱う
-                  }
-                }, 100); // 少し遅延して実行
-              },
-              'error-callback': (error) => {
-                clearTimeout(timeout);
-                reject(error);
-              }
-            });
-            
-            recaptchaVerifierRef.current.render().then(() => {
-              clearTimeout(timeout);
-              resolve('rendered');
-            }).catch((error) => {
-              clearTimeout(timeout);
-              reject(error);
-            });
-          } catch (error) {
-            clearTimeout(timeout);
-            reject(error);
-          }
-        });
-      };
-      
-      await initRecaptcha();
-      
-    } catch (err) {
-      setCaptchaError('reCAPTCHA認証エラー: ' + (err.message || ''));
-      setCaptchaLoading(false);
-      // エラー時もクリーンアップ
-      if (recaptchaVerifierRef.current) {
-        try { recaptchaVerifierRef.current.clear(); } catch (e) {}
-        recaptchaVerifierRef.current = null;
-      }
-    }
-  };
-
   // Firebase認証の永続化設定（3日間）
   useEffect(() => {
     if (firebase.auth().currentUser) return;
@@ -278,7 +185,7 @@ function App() {
         });
       }
     });
-  }, []);  // ログアウト処理
+  }, []);// ログアウト処理
   const handleLogout = async () => {
     await firebase.auth().signOut();
     setUser(null);
@@ -393,20 +300,18 @@ function App() {
       }
     }
   }, [setHistory]);
-
   // ソート条件が変わった時に履歴を再ソート
   useEffect(() => {
     if (history.length > 0) {
       const sortedHistory = sortHistory([...history]);
       setHistory(sortedHistory);
     }
-  }, [sortBy, history]);
-
+  }, [sortBy]); // historyを依存関係から除去して無限ループを防ぐ
   useEffect(() => {
     if (!user) return;
     fetchHistory(user.uid);
     fetchUserProfileApi(user.uid, FIRESTORE_API_URL, setUserProfile, setGrade, saveUserProfileApi);
-  }, [user, fetchHistory, fetchUserProfileApi, setUserProfile, setGrade, saveUserProfileApi]);
+  }, [user, fetchHistory]); // 必要最小限の依存関係のみ保持
 
   // 進行中チャット（1スレッド分）をローカルで管理
   const [currentThread, setCurrentThread] = useState({
@@ -882,41 +787,24 @@ ${subjectGuidance}
     setCurrentView('question');
     setScrollToFollowup(true); // 追加: followupフォームへスクロール要求
   };
-
   // fetchHistory, saveUserProfileのラッパーを定義
   const saveUserProfile = (profile, uid) => saveUserProfileApi(profile, uid, FIRESTORE_API_URL, setUserProfile, setGrade);
-  // UI
-  if (captchaRequired) {
-    return (
-      <div className="App">
-        <header className="App-header">
-          <h2>reCAPTCHA認証</h2>
-          <div style={{ maxWidth: 360, margin: '0 auto', background: '#fff', borderRadius: 8, padding: 24, boxShadow: '0 2px 8px #bfcfff' }}>
-            <p style={{ color: '#333', marginBottom: 20 }}>ロボットでないことを確認してください</p>
-            <div id="recaptcha-container"></div>
-            <button 
-              onClick={startCaptchaVerification} 
-              disabled={captchaLoading} 
-              style={{ width: '100%', marginTop: 12, padding: 12, fontSize: 16 }}
-            >
-              {captchaLoading ? '認証中...' : 'reCAPTCHA認証を開始'}
-            </button>
-            {captchaError && <div style={{ color: 'red', marginTop: 10 }}>{captchaError}</div>}
-          </div>
-        </header>
-      </div>
-    );
-  }
 
   // UI
   if (!user) {
     return (
       <div className="App">
         <header className="App-header">
-          <h1>AI家庭教師「まなび先生」</h1>
+          <h1>AI家庭教師「SeLf」</h1>
           {/* 新規登録メッセージ表示 */}
           {registerMsg && (
             <div className="register-message">{registerMsg}</div>
+          )}
+          {/* reCAPTCHA v3エラー表示 */}
+          {captchaError && (
+            <div style={{ color: 'red', textAlign: 'center', margin: '10px 0' }}>
+              {captchaError}
+            </div>
           )}
           <AuthForm
             authMode={authMode}
@@ -935,7 +823,7 @@ ${subjectGuidance}
         </header>
       </div>
     );
-  }  return (
+  }return (
     <div className="App">
       <header className="App-header">
         {/* 上部のメニューバー */}
@@ -1049,7 +937,7 @@ ${subjectGuidance}
         </div>        {/* タイトル（メニューバーの下） */}
         <div style={{ width: '100%', textAlign: 'center', marginBottom: 20 }}>
           <h1 style={{ margin: 0 }}>
-            AI家庭教師「まなび先生」            <div style={{ fontSize: '0.6em', fontWeight: 'normal', color: '#666', marginTop: 4 }}>
+            AI家庭教師「SeLf」            <div style={{ fontSize: '0.6em', fontWeight: 'normal', color: '#666', marginTop: 4 }}>
               {userProfile.nickname ? 
                 `${getTimeBasedGreeting()}、${userProfile.nickname}さん！` : 
                 userProfile.name ?

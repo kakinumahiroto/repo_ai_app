@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CONTACT_API_URL } from '../App';
 
-function ContactForm({ onClose, user }) {
+function ContactForm({ onClose, user, remainingUsage }) {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
@@ -166,11 +166,11 @@ function ContactForm({ onClose, user }) {
           )}
           <div style={{ display: 'flex', gap: 12 }}>            <button 
               type="submit" 
-              disabled={sending} 
+              disabled={sending || (typeof remainingUsage === 'number' && remainingUsage <= 0)} 
               className="save-button"
               style={{ 
                 flex: 1,
-                background: sending ? '#9ca3af' : undefined
+                background: sending || (typeof remainingUsage === 'number' && remainingUsage <= 0) ? '#9ca3af' : undefined
               }}
             >
               <span>{sending ? '送信中...' : '📤 送信'}</span>
@@ -186,6 +186,11 @@ function ContactForm({ onClose, user }) {
               <span>✖️ キャンセル</span>
             </button>
           </div>
+          {typeof remainingUsage === 'number' && remainingUsage <= 0 && (
+            <div style={{ color: '#dc2626', marginTop: 12, fontWeight: 'bold' }}>
+              残り質問回数がありません。管理者にご連絡ください。
+            </div>
+          )}
         </form>
       </div>
     </div>

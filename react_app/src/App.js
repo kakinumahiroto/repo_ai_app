@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import axios from 'axios';
 import 'katex/dist/katex.min.css';
 import './App.css';
@@ -9,8 +9,10 @@ import ChatBox from './components/ChatBox';
 import HistoryList from './components/HistoryList';
 import ContactForm from './components/ContactForm';
 import ProfileView from './components/ProfileView';
+import AdminUsageManager from './components/AdminUsageManager';
 import { sortHistory, saveUserProfile as saveUserProfileApi, fetchHistory as fetchHistoryApi, fetchUserProfile as fetchUserProfileApi } from './utils/api';
 import { formatMathInput, getTimeBasedGreeting } from './utils/format';
+import { fetchUserUsage, incrementUserUsage, checkUsageLimit, createUserUsage } from './utils/usage';
 
 // Firestoreエミュレータ/本番のURLを環境変数から取得
 const FIRESTORE_API_URL = (() => {
@@ -58,6 +60,9 @@ const validatePassword = (pw) => {
   return null;
 };
 
+// 管理者ユーザーのメールアドレス
+const ADMIN_EMAIL = 'aiappself@gmail.com';
+
 function App() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState(""); // 未使用
@@ -78,7 +83,7 @@ function App() {
   const [scrollToFollowup, setScrollToFollowup] = useState(false);
   
   // 新しい状態管理
-  const [currentView, setCurrentView] = useState("question"); // "question", "history", "contact", "profile"
+  const [currentView, setCurrentView] = useState("question"); // "question", "history", "contact", "profile", "admin"
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [sortBy] = useState("subject"); // setSortBy未使用なので削除
   const [subjectFilter, setSubjectFilter] = useState("all"); // 科目フィルター
@@ -101,6 +106,8 @@ function App() {
   const [followupLoading, setFollowupLoading] = useState(false);
   const [followupError, setFollowupError] = useState("");
   const [followupImageData, setFollowupImageData] = useState(null);
+  const [userUsage, setUserUsage] = useState({ currentUsage: 0, monthlyLimit: 0 }); // 残り質問回数
+
   // Firebase初期化とreCAPTCHA v3設定
   useEffect(() => {
     if (!firebase.apps.length) {
@@ -140,13 +147,12 @@ function App() {
     } catch (recaptchaErr) {
       console.warn('reCAPTCHA v3 token generation failed:', recaptchaErr);
       setCaptchaError('認証処理でエラーが発生しました。再試行してください。');
-    }
-
-    try {
+    }    try {
       if (authMode === "login") {
         const res = await firebase.auth().signInWithEmailAndPassword(email, password);
         setUser(res.user);
-      } else {
+        // ログイン成功時に利用回数情報を取得
+        await loadUserUsage(res.user.email);      } else {
         const res = await firebase.auth().createUserWithEmailAndPassword(email, password);
         // 新規登録時にプロファイルを保存（デフォルト学年設定）
         const profileData = {
@@ -157,10 +163,18 @@ function App() {
         };
         // Firestoreにプロファイルを保存
         try {
-          await saveUserProfile(profileData, res.user.uid);
+          await saveUserProfileApi(profileData, res.user.uid, FIRESTORE_API_URL, setUserProfile, setGrade);
           setGrade(registerGrade); // 現在の学年設定も更新
         } catch (profileError) {
           console.error('プロファイル保存エラー:', profileError);
+        }
+        
+        // 新規ユーザーのuserUsage初期化
+        try {
+          await createUserUsage(res.user.email, FIRESTORE_API_URL);
+          console.log(`新規ユーザー ${res.user.email} のuserUsageを初期化しました`);
+        } catch (usageError) {
+          console.error('userUsage初期化エラー:', usageError);
         }
         
         setRegisterMsg("新規登録しました！ログインしてね！"); // 新規登録時にメッセージ表示
@@ -200,6 +214,7 @@ function App() {
   const handleLogout = async () => {
     await firebase.auth().signOut();
     setUser(null);
+    setUserUsage({ currentUsage: 0, monthlyLimit: 0 });
     setEmail("");    setPassword("");
     setNickname(""); // ニックネームもクリア
     setRegisterGrade("小学生"); // 新規登録用学年もリセット
@@ -321,7 +336,12 @@ function App() {
   useEffect(() => {
     if (!user) return;
     fetchHistory(user.uid);
-    fetchUserProfileApi(user.uid, FIRESTORE_API_URL, setUserProfile, setGrade, saveUserProfileApi);
+    fetchUserProfileApi(user.uid, FIRESTORE_API_URL, setUserProfile, setGrade, saveUserProfileApi);    loadUserUsage(user.email); // 追加: 初回取得
+    // --- 追加: 利用回数情報を30秒ごとに自動更新 ---
+    const interval = setInterval(() => {
+      loadUserUsage(user.email);
+    }, 30000); // 4秒から30秒に変更
+    return () => clearInterval(interval);
   }, [user, fetchHistory]); // 必要最小限の依存関係のみ保持
 
   // 進行中チャット（1スレッド分）をローカルで管理
@@ -338,6 +358,11 @@ function App() {
     e && e.preventDefault();
     setImageLoadedMsg("");
     if (!question.trim() && !imageData) return;
+    // --- 質問回数チェック ---
+    if ((userUsage.monthlyLimit - userUsage.currentUsage) <= 0) {
+      setError('質問可能回数がありません。管理者にご相談ください。');
+      return;
+    }
     setLoading(true);
     setError("");
     setAnswer("");
@@ -455,7 +480,6 @@ ${subjectGuidance}
       setCurrentThread(newThread);
       setQuestion("");      try {
         if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
-        
         // Firebase認証トークンを取得
         const token = await user.getIdToken();
         if (!token) {
@@ -521,6 +545,9 @@ ${subjectGuidance}
           setCurrentThread(prev => ({ ...prev, answer: res.data.answer }));
           fetchHistory(user.uid);
         }
+        // --- 利用回数をインクリメント ---
+        const usage = await incrementUserUsage(user.email, FIRESTORE_API_URL);
+        setUserUsage(usage);
       } catch (err) {
         console.error('=== API呼び出しエラー ===');
         console.error('Error type:', err.constructor.name);
@@ -554,7 +581,6 @@ ${subjectGuidance}
       thread: [...prev.thread, newFollow],
     }));    try {
       if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
-      
       // Firebase認証トークンを取得
       const token = await user.getIdToken();
       if (!token) {
@@ -651,66 +677,19 @@ ${subjectGuidance}
     }
   };
 
-  const handleImageInputWrapper = (e) => {
-    handleImageInput(e, setImageData, setLoading, setImageLoading, setImageLoadedMsg, setError);
-  };
-
-  const handleSpeechInputWrapper = () => {
-    handleSpeechInput(setQuestion, setError);
-  };
-
-  const handleImageInput = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setLoading(true);
-    setImageLoading(true); // 画像読み込み中
-    setImageLoadedMsg("");
-    setError("");
-    try {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setImageData(reader.result);
-        setImageLoading(false);
-        setImageLoadedMsg("画像を読み込みました");
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      setError("画像の読み込みに失敗しました");
-      setImageLoading(false);
-      setImageLoadedMsg("");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSpeechInput = () => {
-    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-      setError('音声認識に未対応のブラウザです');
-      return;
-    }
-    setError("");
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'ja-JP';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      setQuestion(prev => (prev ? prev + '\n' : '') + transcript);
-    };
-    recognition.onerror = (event) => {
-      setError('音声認識エラー: ' + event.error);
-    };
-    recognition.start();
-  };
   // --- 追加: AI返答への自由入力欄 ---
   const [followupText, setFollowupText] = useState("");
 
   // AI返答への自由入力送信
   const handleFollowup = async (e) => {
     e.preventDefault();
-    setImageLoadedMsg(""); // 追加: 追加質問時に画像読み込みメッセージをクリア
+    setImageLoadedMsg("");
     if (!followupText.trim() && !followupImageData) return;
+    // --- 質問回数チェック ---
+    if ((userUsage.monthlyLimit - userUsage.currentUsage) <= 0) {
+      setFollowupError('質問可能回数がありません。管理者にご相談ください。');
+      return;
+    }
     setFollowupLoading(true);
     setFollowupError("");
     // --- ここで数式整形 ---
@@ -790,12 +769,20 @@ ${subjectGuidance}
             console.error('Firestore patch error:', patchErr);
           });
         }
-        
-        return {
+          return {
           ...prev,
           thread: updatedThread,
         };
       });
+      
+      // --- 追加質問でも質問回数をインクリメント ---
+      try {
+        const usage = await incrementUserUsage(user.email, FIRESTORE_API_URL);
+        setUserUsage(usage);
+      } catch (usageErr) {
+        console.error('質問回数インクリメントエラー:', usageErr);
+      }
+      
       setFollowupImageData(null); // 送信後のみクリア
     } catch (err) {
       setFollowupError("AIへの再質問に失敗しました: " + (err?.message || ''));
@@ -804,6 +791,165 @@ ${subjectGuidance}
       setFollowupLoading(false);
     }
   };
+
+  const handleImageInputWrapper = (e) => {
+    handleImageInput(e, setImageData, setLoading, setImageLoading, setImageLoadedMsg, setError);
+  };
+
+  const handleSpeechInputWrapper = () => {
+    handleSpeechInput(setQuestion, setError);
+  };
+
+  const handleImageInput = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setLoading(true);
+    setImageLoading(true); // 画像読み込み中
+    setImageLoadedMsg("");
+    setError("");
+    try {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setImageData(reader.result);
+        setImageLoading(false);
+        setImageLoadedMsg("画像を読み込みました");
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      setError("画像の読み込みに失敗しました");
+      setImageLoading(false);
+      setImageLoadedMsg("");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSpeechInput = () => {
+    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+      setError('音声認識に未対応のブラウザです');
+      return;
+    }
+    setError("");
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'ja-JP';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      setQuestion(prev => (prev ? prev + '\n' : '') + transcript);
+    };
+    recognition.onerror = (event) => {
+      setError('音声認識エラー: ' + event.error);
+    };
+    recognition.start();
+  };
+  // --- 追加: AI返答への自由入力欄 ---
+  // const [followupText, setFollowupText] = useState("");
+
+  // // AI返答への自由入力送信
+  // const handleFollowup = async (e) => {
+  //   e.preventDefault();
+  //   setImageLoadedMsg("");
+  //   if (!followupText.trim() && !followupImageData) return;
+  //   // --- 質問回数チェック ---
+  //   if ((userUsage.monthlyLimit - userUsage.currentUsage) <= 0) {
+  //     setFollowupError('質問可能回数がありません。管理者にご相談ください。');
+  //     return;
+  //   }
+  //   setFollowupLoading(true);
+  //   setFollowupError("");
+  //   // --- ここで数式整形 ---
+  //   const q = formatMathInput(followupText);
+  //   setFollowupText("");
+  //   const newFollow = {
+  //     question: q,
+  //     answer: '',
+  //     createdAt: new Date().toISOString(),
+  //     subject,
+  //   };
+  //   setCurrentThread(prev => ({
+  //     ...prev,
+  //     thread: [...prev.thread, newFollow],
+  //   }));    try {
+  //     if (!API_URL) throw new Error('AI APIエンドポイントが未設定です');
+      
+  //     // Firebase認証トークンを取得
+  //     const token = await user.getIdToken();
+  //     if (!token) {
+  //       setFollowupError('認証が必要です。再ログインしてください。');
+  //       setFollowupLoading(false);
+  //       return;
+  //     }
+
+  //     // const prevThread = currentThread.thread || []; // 未使用
+  //     const res = await axios.post(
+  //       API_URL,
+  //       { question: q, grade, uid: user?.uid, currentThread, imageData: followupImageData },
+  //       { 
+  //         headers: { 
+  //           'Content-Type': 'application/json',
+  //           'Authorization': `Bearer ${token}`
+  //         } 
+  //       }
+  //     );
+  //     setAnswer(res.data.answer);
+  //     setCurrentAnswerChunks([res.data.answer]);
+  //     setCurrentChunkIndex(1);      setCurrentThread(prev => {
+  //       const updatedThread = [...prev.thread];
+  //       if (updatedThread.length > 0 && updatedThread[updatedThread.length - 1].question === q) {
+  //         updatedThread[updatedThread.length - 1].answer = res.data.answer;
+  //       }
+        
+  //       // Firestoreの既存ドキュメントをpatchで更新
+  //       if (FIRESTORE_API_URL && user?.uid && threadId) {
+  //         axios.patch(
+  //           `${FIRESTORE_API_URL}/questionThreads/${threadId}`,
+  //           {
+  //             fields: {
+  //               question: { stringValue: currentThread.question },
+  //               answer: { stringValue: currentThread.answer },
+  //               createdAt: { stringValue: currentThread.createdAt },
+  //               grade: { stringValue: currentThread.grade },
+  //               subject: { stringValue: currentThread.subject || subject },
+  //               uid: { stringValue: user.uid },
+  //               thread: {
+  //                 arrayValue: {
+  //                   values: updatedThread.map(t => ({
+  //                     mapValue: {
+  //                       fields: {
+  //                         q: { stringValue: t.question },
+  //                         a: { stringValue: t.answer },
+  //                         createdAt: { stringValue: t.createdAt },
+  //                         subject: { stringValue: t.subject || subject },
+  //                       }
+  //                     }
+  //                   }))
+  //                 }
+  //               },
+  //             }
+  //           },
+  //           { headers: { 'Content-Type': 'application/json' } }
+  //         ).then(() => {
+  //           fetchHistory(user.uid);
+  //         }).catch(patchErr => {
+  //           console.error('Firestore patch error:', patchErr);
+  //         });
+  //       }
+        
+  //       return {
+  //         ...prev,
+  //         thread: updatedThread,
+  //       };
+  //     });
+  //     setFollowupImageData(null); // 送信後のみクリア
+  //   } catch (err) {
+  //     setFollowupError("AIへの再質問に失敗しました: " + (err?.message || ''));
+  //     console.error('handleFollowup error', err);
+  //   } finally {
+  //     setFollowupLoading(false);
+  //   }
+  // };
 
   const handleImageInputFollowup = (e) => {
     const file = e.target.files[0];
@@ -906,6 +1052,40 @@ ${subjectGuidance}
     }
   };
 
+  // isAdmin: userのemailが管理者メールアドレスかどうか
+  const isAdmin = useMemo(() => {
+    return user && user.email === ADMIN_EMAIL;
+  }, [user]);  // loadUserUsage: userのemailで利用回数情報を取得
+  const loadUserUsage = useCallback(async (email) => {
+    if (!email) return;
+    try {
+      console.log(`利用回数情報を取得中: ${email}`);
+      const usage = await fetchUserUsage(email, FIRESTORE_API_URL);
+      console.log(`利用回数情報取得成功:`, usage);
+      setUserUsage(usage ?? { currentUsage: 0, monthlyLimit: 0 });
+    } catch (err) {
+      console.error('利用回数情報の取得に失敗:', err);
+      // ユーザーデータが存在しない場合は初期化を試行
+      try {
+        console.log(`ユーザー ${email} のデータが存在しないため初期化を試行`);
+        const initialUsage = await createUserUsage(email, FIRESTORE_API_URL);
+        console.log(`初期化成功:`, initialUsage);
+        setUserUsage(initialUsage);
+      } catch (createError) {
+        console.error('userUsage初期化も失敗:', createError);
+        setUserUsage({ currentUsage: 0, monthlyLimit: 0 });
+      }
+    }
+  }, []);
+
+  // 管理者による操作後の即座更新コールバック
+  const handleUserUsageUpdate = useCallback(async (targetUserEmail) => {
+    // 現在のユーザーが管理操作の対象の場合のみ更新
+    if (user && user.email === targetUserEmail) {
+      await loadUserUsage(targetUserEmail);
+    }
+  }, [user, loadUserUsage]);
+
   // UI
   if (!user) {
     return (
@@ -939,7 +1119,7 @@ ${subjectGuidance}
         </header>
       </div>
     );
-  }return (
+  }  return (
     <div className="App">
       <header className="App-header">
         {/* 上部のメニューバー */}
@@ -1029,6 +1209,27 @@ ${subjectGuidance}
                 >
                   👤 プロフィール
                 </button>
+                
+                {/* 管理者メニュー */}
+                {isAdmin && (
+                  <button 
+                    onClick={() => { setCurrentView('admin'); setDropdownOpen(false); }}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      padding: '12px 16px',
+                      border: 'none',
+                      background: currentView === 'admin' ? '#e0e7ff' : 'transparent',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: currentView === 'admin' ? '#4f46e5' : '#374151'
+                    }}
+                  >
+                    🔧 管理者メニュー
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1116,10 +1317,29 @@ ${subjectGuidance}
                 <button type="button" onClick={handleSpeechInputWrapper} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold' }}>
                   <span role="img" aria-label="マイク" style={{ marginRight: 4 }}>🎤</span>音声で質問
                 </button>
-              </div>
-              <button type="submit" disabled={loading || !question} style={{ marginTop: 8, width: 180, alignSelf: 'center' }}>
+              </div>              <button type="submit" disabled={loading || !question || (userUsage.monthlyLimit - userUsage.currentUsage <= 0)} style={{ marginTop: 8, width: 180, alignSelf: 'center' }}>
                 {loading ? 'AIが考え中...' : '質問する'}
-              </button>            </form>
+              </button>
+              {/* 残り質問回数表示 */}
+              <div style={{ marginTop: 12, textAlign: 'center', fontSize: 14 }}>
+                <span style={{ fontWeight: 'bold', color: '#374151' }}>
+                  今月の残り質問回数: 
+                </span>
+                <span style={{ 
+                  fontWeight: 'bold', 
+                  color: (userUsage.monthlyLimit - userUsage.currentUsage) <= 0 ? '#dc2626' : '#059669' 
+                }}>
+                  {Math.max(0, userUsage.monthlyLimit - userUsage.currentUsage)}回
+                </span>
+                <span style={{ color: '#6b7280' }}>
+                  （上限: {userUsage.monthlyLimit}回）
+                </span>
+              </div>
+              {(userUsage.monthlyLimit - userUsage.currentUsage) <= 0 && (
+                <div style={{ color: '#dc2626', marginTop: 8, fontWeight: 'bold', textAlign: 'center' }}>
+                  質問回数の上限に達しました。管理者にご連絡ください。
+                </div>
+              )}</form>
             
             {/* --- AI回答・追加質問UI --- */}
             {currentThread.question && (
@@ -1154,6 +1374,7 @@ ${subjectGuidance}
                 imageLoadedMsg={imageLoadedMsg}
                 followupImageData={followupImageData}
                 setFollowupImageData={setFollowupImageData}
+                remainingUsage={userUsage.monthlyLimit - userUsage.currentUsage}
               />
             )}
           </div>
@@ -1214,15 +1435,27 @@ ${subjectGuidance}
           </div>
         )}        {/* お問い合わせビュー */}
         {currentView === 'contact' && (
-          <ContactForm onClose={() => setCurrentView('question')} user={user} />
+          <ContactForm 
+            onClose={() => setCurrentView('question')} 
+            user={user} 
+            remainingUsage={userUsage.monthlyLimit - userUsage.currentUsage} 
+          />
         )}        {/* プロフィールビュー */}
         {currentView === 'profile' && (
           <ProfileView
             user={user}
             userProfile={userProfile}
             setCurrentView={setCurrentView}
-            saveUserProfile={saveUserProfile}
+            saveUserProfile={saveUserProfileApi}
             setGrade={setGrade}
+          />
+        )}
+        
+        {/* 管理者メニュー */}        {currentView === 'admin' && (
+          <AdminUsageManager 
+            FIRESTORE_API_URL={FIRESTORE_API_URL}
+            isAdmin={isAdmin}
+            onUserUsageUpdate={handleUserUsageUpdate}
           />
         )}
       </header>

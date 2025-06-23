@@ -17,7 +17,7 @@
 [ Firebase Authentication ]
      │
      ▼
-[ Firestore ]  ← 質問履歴、ユーザー状態保存
+[ Firestore ]  ← 質問履歴、ユーザー状態保存、質問回数制限管理
      │
      ▼
 [ Firebase Functions ]（APIプロキシ）
@@ -103,6 +103,40 @@ C:/
 
 * `node_modules/`、`venv/`、`.env` は `.gitignore` でGitに含めない
 * GitHub Copilot Agentを活用する場合、上記構成を記載した `README.md` を起点に生成指示
+
+---
+
+## Firestoreデータベース構造
+
+### コレクション設計
+
+```
+users/
+├── {userUID}/
+│   ├── profile      # ユーザープロファイル
+│   └── history/     # 質問履歴
+│       └── {questionId}/
+│           ├── question
+│           ├── answer
+│           ├── grade
+│           ├── subject
+│           └── timestamp
+
+userUsage/
+└── {userEmail}/
+    ├── currentUsage   # 現在の使用回数
+    ├── monthlyLimit   # 月次制限回数
+    ├── lastResetDate  # 最終リセット日
+    └── updatedAt      # 更新日時
+```
+
+### 質問回数制限システム
+
+- 新規ユーザー登録時: `userUsage`ドキュメント自動作成（デフォルト10回/月）
+- 質問実行時: `currentUsage`をインクリメント
+- 月次自動リセット: `lastResetDate`による月切り替え時に`currentUsage`をリセット
+- 管理者機能: `monthlyLimit`の個別設定・`currentUsage`のリセット
+- リアルタイム更新: 4秒間隔でのポーリング更新
 
 ---
 

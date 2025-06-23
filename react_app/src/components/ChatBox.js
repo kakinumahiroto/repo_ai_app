@@ -40,6 +40,7 @@ function ChatBox({
   imageLoadedMsg,
   followupImageData,
   setFollowupImageData,
+  remainingUsage,
 }) {
   const followupFormRef = useRef(null);
   const followupInputRef = useRef(null);
@@ -91,14 +92,17 @@ function ChatBox({
         {/* 続きを表示ボタン */}
         {currentChunkIndex < currentAnswerChunks.length && (
           <button onClick={() => setCurrentChunkIndex(i => i + 1)} style={{ marginTop: 12 }}>続きを表示</button>
-        )}
-        {/* 選択式の追加質問誘導 */}
+        )}        {/* 選択式の追加質問誘導 */}
         <div className="suggest-btns">
           {SUGGESTIONS.map(s => (
             <button
               key={s}
               type="button"
+              disabled={typeof remainingUsage === 'number' && remainingUsage <= 0}
               onClick={() => {
+                if (typeof remainingUsage === 'number' && remainingUsage <= 0) {
+                  return; // 残り回数がない場合は処理しない
+                }
                 if (currentThread.question) {
                   setFollowupText(s);
                   setTimeout(() => {
@@ -107,6 +111,10 @@ function ChatBox({
                 } else {
                   handleSubmit(null, s);
                 }
+              }}
+              style={{
+                opacity: typeof remainingUsage === 'number' && remainingUsage <= 0 ? 0.5 : 1,
+                cursor: typeof remainingUsage === 'number' && remainingUsage <= 0 ? 'not-allowed' : 'pointer'
               }}
             >
               {s}
@@ -119,7 +127,8 @@ function ChatBox({
           onSubmit={handleFollowup}
           className="followup-form"
           style={{ position: 'relative', marginTop: 18, display: 'flex', gap: 8, width: '100%', justifyContent: 'center' }}
-        >          <div className="followup-input-wrapper" style={{ position: 'relative', flex: 1 }}>
+        >
+          <div className="followup-input-wrapper" style={{ position: 'relative', flex: 1 }}>
             <input
               ref={followupInputRef}
               type="text"
@@ -131,7 +140,7 @@ function ChatBox({
               }}
               maxLength={1000}
               placeholder="AIへの追加質問や返答を入力..."
-              disabled={followupLoading}
+              disabled={followupLoading || (typeof remainingUsage === 'number' && remainingUsage <= 0)}
               style={{ paddingRight: followupImageData && !imageLoading ? 36 : undefined }}
               required
             />
@@ -147,10 +156,15 @@ function ChatBox({
           <button type="button" onClick={handleSpeechInputFollowup} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold', minWidth: 120, justifyContent: 'center' }}>
             <span role="img" aria-label="マイク" style={{ marginRight: 4 }}>🎤</span>音声で質問
           </button>
-          <button id="followup-form-submit-btn" type="submit" disabled={followupLoading || (!followupText.trim() && !followupImageData)} style={{ minWidth: 80 }}>
+          <button id="followup-form-submit-btn" type="submit" disabled={followupLoading || (!followupText.trim() && !followupImageData) || (typeof remainingUsage === 'number' && remainingUsage <= 0)} style={{ minWidth: 80 }}>
             送信
           </button>
         </form>
+        {typeof remainingUsage === 'number' && remainingUsage <= 0 && (
+          <div style={{ color: '#dc2626', marginTop: 8, fontWeight: 'bold' }}>
+            残り質問回数がありません。管理者にご連絡ください。
+          </div>
+        )}
         {imageLoading && (
           <div className="image-loading-msg">画像を読み込んでいます...</div>
         )}

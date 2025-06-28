@@ -122,6 +122,9 @@ function App() {
   const [followupImageData, setFollowupImageData] = useState(null);
   const [userUsage, setUserUsage] = useState({ currentUsage: 0, monthlyLimit: 0 }); // 残り質問回数
 
+  // ファイル入力用のref
+  const fileInputRef = useRef(null);
+
   // Firebase初期化とreCAPTCHA v3設定
   useEffect(() => {
     if (!firebase.apps.length) {
@@ -848,6 +851,10 @@ ${subjectGuidance}
     handleImageInput(e, setImageData, setLoading, setImageLoading, setImageLoadedMsg, setError);
   };
 
+  const handleImageButtonClick = () => {
+    fileInputRef.current?.click();
+  };
+
   const handleSpeechInputWrapper = () => {
     handleSpeechInput(setQuestion, setError);
   };
@@ -1088,7 +1095,10 @@ ${subjectGuidance}
     setScrollToFollowup(true); // 追加: followupフォームへスクロール要求
   };
   // fetchHistory, saveUserProfileのラッパーを定義
-  const saveUserProfile = (profile, uid) => saveUserProfileApi(profile, uid, FIRESTORE_API_URL, setUserProfile, setGrade);
+  const saveUserProfile = (profile) => {
+    if (!user) return;
+    return saveUserProfileApi(profile, user.uid, FIRESTORE_API_URL, setUserProfile, setGrade);
+  };
 
   // Firebase認証トークンを取得する関数
   const getAuthToken = async () => {
@@ -1362,15 +1372,15 @@ ${subjectGuidance}
                 </div>
               )}
               <div style={{ display: 'flex', gap: 8, marginBottom: 8, justifyContent: 'center' }}>
-                <label htmlFor="imageInput" style={{ background: '#e0e7ff', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', fontWeight: 'bold' }}>
-                  <span role="img" aria-label="カメラ" style={{ marginRight: 4 }}>📷</span><span style={{ fontWeight: 'bold' }}>画像から質問</span>
-                  <input id="imageInput" type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageInputWrapper} />
-                </label>
-                <button type="button" onClick={handleSpeechInputWrapper} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold' }}>
+                <button type="button" onClick={handleImageButtonClick} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold', borderRadius: 4, border: 'none', cursor: 'pointer' }}>
+                  <span role="img" aria-label="カメラ" style={{ marginRight: 4 }}>📷</span>画像から質問
+                </button>
+                <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageInputWrapper} />
+                <button type="button" onClick={handleSpeechInputWrapper} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold', borderRadius: 4, border: 'none', cursor: 'pointer' }}>
                   <span role="img" aria-label="マイク" style={{ marginRight: 4 }}>🎤</span>音声で質問
                 </button>
               </div>              <button type="submit" disabled={loading || !question || (userUsage.monthlyLimit - userUsage.currentUsage <= 0)} style={{ marginTop: 8, width: 180, alignSelf: 'center' }}>
-                {loading ? 'AIが考え中...' : '質問する'}
+                {loading ? '考え中...' : '質問する'}
               </button>
               {/* 残り質問回数表示 */}
               <div style={{ marginTop: 12, textAlign: 'center', fontSize: 14 }}>
@@ -1498,8 +1508,9 @@ ${subjectGuidance}
             user={user}
             userProfile={userProfile}
             setCurrentView={setCurrentView}
-            saveUserProfile={saveUserProfileApi}
+            saveUserProfile={saveUserProfile}
             setGrade={setGrade}
+            setUserProfile={setUserProfile}
           />
         )}
         

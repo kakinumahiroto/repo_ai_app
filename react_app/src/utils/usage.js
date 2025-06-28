@@ -8,7 +8,7 @@ export const fetchUserUsage = async (userEmail, FIRESTORE_API_URL) => {
     if (res.data.fields) {
       return {
         currentUsage: parseInt(res.data.fields.currentUsage?.integerValue ?? '0', 10),
-        monthlyLimit: parseInt(res.data.fields.monthlyLimit?.integerValue ?? '10', 10),
+        monthlyLimit: parseInt(res.data.fields.monthlyLimit?.integerValue ?? '0', 10),
         lastResetDate: res.data.fields.lastResetDate?.stringValue || null,
         updatedAt: res.data.fields.updatedAt?.timestampValue || null
       };
@@ -18,7 +18,7 @@ export const fetchUserUsage = async (userEmail, FIRESTORE_API_URL) => {
       // ユーザーのデータが存在しない場合はデフォルト値を返す
       return {
         currentUsage: 0,
-        monthlyLimit: 10,
+        monthlyLimit: 0,
         lastResetDate: null,
         updatedAt: null
       };
@@ -70,7 +70,7 @@ export const createUserUsage = async (userEmail, FIRESTORE_API_URL) => {
   const initialData = {
     fields: {
       currentUsage: { integerValue: 0 },
-      monthlyLimit: { integerValue: 10 }, // デフォルト10回
+      monthlyLimit: { integerValue: 0 }, // デフォルト0回
       lastResetDate: { stringValue: currentMonth },
       updatedAt: { timestampValue: new Date().toISOString() }
     }
@@ -80,7 +80,7 @@ export const createUserUsage = async (userEmail, FIRESTORE_API_URL) => {
     await axios.patch(`${FIRESTORE_API_URL}/userUsage/${userEmail}`, initialData);
     return {
       currentUsage: 0,
-      monthlyLimit: 10,
+      monthlyLimit: 0,
       lastResetDate: currentMonth,
       updatedAt: new Date().toISOString()
     };
@@ -133,7 +133,7 @@ export const fetchAllUsersUsage = async (FIRESTORE_API_URL) => {
         return {
           email: userEmail,
           currentUsage: parseInt(doc.fields.currentUsage?.integerValue ?? '0', 10),
-          monthlyLimit: parseInt(doc.fields.monthlyLimit?.integerValue ?? '10', 10),
+          monthlyLimit: parseInt(doc.fields.monthlyLimit?.integerValue ?? '0', 10),
           lastResetDate: doc.fields.lastResetDate?.stringValue || null,
           updatedAt: doc.fields.updatedAt?.timestampValue || null
         };

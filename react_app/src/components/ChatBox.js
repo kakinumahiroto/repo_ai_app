@@ -44,6 +44,12 @@ function ChatBox({
 }) {
   const followupFormRef = useRef(null);
   const followupInputRef = useRef(null);
+  // ファイル入力用のref（追加質問用）
+  const followupFileInputRef = useRef(null);
+
+  const handleFollowupImageButtonClick = () => {
+    followupFileInputRef.current?.click();
+  };
 
   useEffect(() => {
     if (scrollToFollowup && followupFormRef.current) {
@@ -126,9 +132,9 @@ function ChatBox({
           ref={followupFormRef}
           onSubmit={handleFollowup}
           className="followup-form"
-          style={{ position: 'relative', marginTop: 18, display: 'flex', gap: 8, width: '100%', justifyContent: 'center' }}
+          style={{ position: 'relative', marginTop: 18, width: '100%' }}
         >
-          <div className="followup-input-wrapper" style={{ position: 'relative', flex: 1 }}>
+          <div className="followup-input-wrapper" style={{ position: 'relative', marginBottom: 8 }}>
             <input
               ref={followupInputRef}
               type="text"
@@ -141,7 +147,7 @@ function ChatBox({
               maxLength={1000}
               placeholder="AIへの追加質問や返答を入力..."
               disabled={followupLoading || (typeof remainingUsage === 'number' && remainingUsage <= 0)}
-              style={{ paddingRight: followupImageData && !imageLoading ? 36 : undefined }}
+              style={{ paddingRight: followupImageData && !imageLoading ? 36 : undefined, width: '100%' }}
               required
             />
             {/* 追加質問で画像が読み込み済みなら右下にカメラアイコン */}
@@ -149,14 +155,16 @@ function ChatBox({
               <span className="camera-icon-attached" title="画像が添付されています">📷</span>
             )}
           </div>
-          <label htmlFor="followupImageInput" style={{ background: '#e0e7ff', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', minWidth: 120, fontWeight: 'bold', justifyContent: 'center' }}>
-            <span role="img" aria-label="カメラ" style={{ marginRight: 4 }}>📷</span>画像から質問
-            <input id="followupImageInput" type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleImageInputFollowup(e)} />
-          </label>
-          <button type="button" onClick={handleSpeechInputFollowup} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold', minWidth: 120, justifyContent: 'center' }}>
-            <span role="img" aria-label="マイク" style={{ marginRight: 4 }}>🎤</span>音声で質問
-          </button>
-          <button id="followup-form-submit-btn" type="submit" disabled={followupLoading || (!followupText.trim() && !followupImageData) || (typeof remainingUsage === 'number' && remainingUsage <= 0)} style={{ minWidth: 80 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, justifyContent: 'center' }}>
+            <button type="button" onClick={handleFollowupImageButtonClick} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold', borderRadius: 4, border: 'none', cursor: 'pointer' }}>
+              <span role="img" aria-label="カメラ" style={{ marginRight: 4 }}>📷</span>画像から質問
+            </button>
+            <input ref={followupFileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleImageInputFollowup(e)} />
+            <button type="button" onClick={handleSpeechInputFollowup} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold', borderRadius: 4, border: 'none', cursor: 'pointer' }}>
+              <span role="img" aria-label="マイク" style={{ marginRight: 4 }}>🎤</span>音声で質問
+            </button>
+          </div>
+          <button id="followup-form-submit-btn" type="submit" disabled={followupLoading || (!followupText.trim() && !followupImageData) || (typeof remainingUsage === 'number' && remainingUsage <= 0)} style={{ minWidth: 80, display: 'block', margin: '0 auto' }}>
             送信
           </button>
         </form>

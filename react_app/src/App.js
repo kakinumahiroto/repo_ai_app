@@ -35,6 +35,16 @@ const API_URL = (() => {
   return (prodUrl && prodUrl.includes('ragChat')) ? prodUrl : prodUrl?.replace('aiAnswer', 'ragChat') || localUrl?.replace('aiAnswer', 'ragChat');
 })();
 
+// reCAPTCHAサイトキーの自動切り替え
+const RECAPTCHA_SITE_KEY = (() => {
+  const localKey = process.env.REACT_APP_RECAPTCHA_SITE_KEY_LOCAL;
+  const prodKey = process.env.REACT_APP_RECAPTCHA_SITE_KEY_PROD;
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return localKey || prodKey;
+  }
+  return prodKey || localKey;
+})();
+
 // Cloud Functionsエミュレータ or 本番のURLを自動切り替え
 export const CONTACT_API_URL =
   window.location.hostname === 'localhost'
@@ -48,6 +58,10 @@ if (!FIRESTORE_API_URL) {
 if (!API_URL) {
   // eslint-disable-next-line no-console
   console.error('REACT_APP_API_URL_LOCAL/PRODが未設定です。AI API呼び出しは失敗します。');
+}
+if (!RECAPTCHA_SITE_KEY) {
+  // eslint-disable-next-line no-console
+  console.error('REACT_APP_RECAPTCHA_SITE_KEY_LOCAL/PRODが未設定です。reCAPTCHA機能は無効になります。');
 }
 
 // パスワードバリデーション関数
@@ -118,12 +132,45 @@ function App() {
       });
     }
     
-    // reCAPTCHA v3の初期化
-    if (window.grecaptcha) {
-      window.grecaptcha.ready(() => {
-        console.log('reCAPTCHA v3 is ready');
-      });
-    }
+    // reCAPTCHA v3の動的読み込みと初期化
+    const loadRecaptcha = async () => {
+      if (!RECAPTCHA_SITE_KEY) {
+        console.warn('reCAPTCHA site key is not configured. reCAPTCHA functionality will be disabled.');
+        return;
+      }
+
+      // 既にreCAPTCHAスクリプトが読み込まれている場合はスキップ
+      if (window.grecaptcha) {
+        console.log('reCAPTCHA already loaded');
+        return;
+      }
+
+      try {
+        // reCAPTCHAスクリプトを動的に読み込み
+        const script = document.createElement('script');
+        script.src = `https://www.google.com/recaptcha/api.js?render=${RECAPTCHA_SITE_KEY}`;
+        script.async = true;
+        script.defer = true;
+        
+        script.onload = () => {
+          if (window.grecaptcha) {
+            window.grecaptcha.ready(() => {
+              console.log('reCAPTCHA v3 is ready with key:', RECAPTCHA_SITE_KEY.substring(0, 20) + '...');
+            });
+          }
+        };
+        
+        script.onerror = () => {
+          console.error('Failed to load reCAPTCHA script');
+        };
+        
+        document.head.appendChild(script);
+      } catch (error) {
+        console.error('Error loading reCAPTCHA:', error);
+      }
+    };
+
+    loadRecaptcha();
   }, []);  // メールアドレスでログイン/新規登録（v3対応）
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -140,13 +187,18 @@ function App() {
       }
     }    // reCAPTCHA v3トークンの取得
     let recaptchaToken = null;
-    try {
-      if (window.grecaptcha) {
-        recaptchaToken = await window.grecaptcha.execute('6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI', {action: 'login'});
+    if (RECAPTCHA_SITE_KEY) {
+      try {
+        if (window.grecaptcha) {
+          recaptchaToken = await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, {action: 'login'});
+          console.log('reCAPTCHA token generated successfully');
+        }
+      } catch (recaptchaErr) {
+        console.warn('reCAPTCHA v3 token generation failed:', recaptchaErr);
+        setCaptchaError('認証処理でエラーが発生しました。再試行してください。');
       }
-    } catch (recaptchaErr) {
-      console.warn('reCAPTCHA v3 token generation failed:', recaptchaErr);
-      setCaptchaError('認証処理でエラーが発生しました。再試行してください。');
+    } else {
+      console.warn('reCAPTCHA site key is not configured. Skipping reCAPTCHA verification.');
     }    try {
       if (authMode === "login") {
         const res = await firebase.auth().signInWithEmailAndPassword(email, password);

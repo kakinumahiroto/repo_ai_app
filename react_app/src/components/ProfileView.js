@@ -149,7 +149,7 @@ const ProfileView = ({ user, userProfile, setCurrentView, saveUserProfile, setGr
                     cursor: saving ? 'not-allowed' : 'pointer'
                   }}
                 >
-                  キャンセル
+                  取消
                 </button>
               </div>
             </div>
@@ -242,7 +242,7 @@ const ProfileView = ({ user, userProfile, setCurrentView, saveUserProfile, setGr
                     cursor: saving ? 'not-allowed' : 'pointer'
                   }}
                 >
-                  キャンセル
+                  取消
                 </button>
               </div>
             </div>

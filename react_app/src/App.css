@@ -1257,7 +1257,7 @@ form .suggest-btns {
   }
 }
 
-/* キャンセルボタンのスタイル改善 */
+/* 取消ボタンのスタイル改善 */
 .cancel-button {
   background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%) !important;
   color: white !important;
@@ -1290,7 +1290,7 @@ form .suggest-btns {
   transform: none !important;
 }
 
-/* キャンセルボタンにリップル効果 */
+/* 取消ボタンにリップル効果 */
 .cancel-button::before {
   content: '';
   position: absolute;
@@ -1315,7 +1315,7 @@ form .suggest-btns {
   z-index: 1;
 }
 
-/* PC版でのキャンセルボタン改善 */
+/* PC版での取消ボタン改善 */
 @media (min-width: 768px) {
   .cancel-button {
     padding: 12px 24px !important;

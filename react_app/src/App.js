@@ -35,6 +35,16 @@ const API_URL = (() => {
   return (prodUrl && prodUrl.includes('ragChat')) ? prodUrl : prodUrl?.replace('aiAnswer', 'ragChat') || localUrl?.replace('aiAnswer', 'ragChat');
 })();
 
+// reCAPTCHAサイトキーの自動切り替え
+const RECAPTCHA_SITE_KEY = (() => {
+  const localKey = process.env.REACT_APP_RECAPTCHA_SITE_KEY_LOCAL;
+  const prodKey = process.env.REACT_APP_RECAPTCHA_SITE_KEY_PROD;
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return localKey || prodKey;
+  }
+  return prodKey || localKey;
+})();
+
 // Cloud Functionsエミュレータ or 本番のURLを自動切り替え
 export const CONTACT_API_URL =
   window.location.hostname === 'localhost'
@@ -48,6 +58,10 @@ if (!FIRESTORE_API_URL) {
 if (!API_URL) {
   // eslint-disable-next-line no-console
   console.error('REACT_APP_API_URL_LOCAL/PRODが未設定です。AI API呼び出しは失敗します。');
+}
+if (!RECAPTCHA_SITE_KEY) {
+  // eslint-disable-next-line no-console
+  console.error('REACT_APP_RECAPTCHA_SITE_KEY_LOCAL/PRODが未設定です。reCAPTCHA機能は無効になります。');
 }
 
 // パスワードバリデーション関数
@@ -108,6 +122,9 @@ function App() {
   const [followupImageData, setFollowupImageData] = useState(null);
   const [userUsage, setUserUsage] = useState({ currentUsage: 0, monthlyLimit: 0 }); // 残り質問回数
 
+  // ファイル入力用のref
+  const fileInputRef = useRef(null);
+
   // Firebase初期化とreCAPTCHA v3設定
   useEffect(() => {
     if (!firebase.apps.length) {
@@ -118,12 +135,45 @@ function App() {
       });
     }
     
-    // reCAPTCHA v3の初期化
-    if (window.grecaptcha) {
-      window.grecaptcha.ready(() => {
-        console.log('reCAPTCHA v3 is ready');
-      });
-    }
+    // reCAPTCHA v3の動的読み込みと初期化
+    const loadRecaptcha = async () => {
+      if (!RECAPTCHA_SITE_KEY) {
+        console.warn('reCAPTCHA site key is not configured. reCAPTCHA functionality will be disabled.');
+        return;
+      }
+
+      // 既にreCAPTCHAスクリプトが読み込まれている場合はスキップ
+      if (window.grecaptcha) {
+        console.log('reCAPTCHA already loaded');
+        return;
+      }
+
+      try {
+        // reCAPTCHAスクリプトを動的に読み込み
+        const script = document.createElement('script');
+        script.src = `https://www.google.com/recaptcha/api.js?render=${RECAPTCHA_SITE_KEY}`;
+        script.async = true;
+        script.defer = true;
+        
+        script.onload = () => {
+          if (window.grecaptcha) {
+            window.grecaptcha.ready(() => {
+              console.log('reCAPTCHA v3 is ready with key:', RECAPTCHA_SITE_KEY.substring(0, 20) + '...');
+            });
+          }
+        };
+        
+        script.onerror = () => {
+          console.error('Failed to load reCAPTCHA script');
+        };
+        
+        document.head.appendChild(script);
+      } catch (error) {
+        console.error('Error loading reCAPTCHA:', error);
+      }
+    };
+
+    loadRecaptcha();
   }, []);  // メールアドレスでログイン/新規登録（v3対応）
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -140,13 +190,18 @@ function App() {
       }
     }    // reCAPTCHA v3トークンの取得
     let recaptchaToken = null;
-    try {
-      if (window.grecaptcha) {
-        recaptchaToken = await window.grecaptcha.execute('6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI', {action: 'login'});
+    if (RECAPTCHA_SITE_KEY) {
+      try {
+        if (window.grecaptcha) {
+          recaptchaToken = await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, {action: 'login'});
+          console.log('reCAPTCHA token generated successfully');
+        }
+      } catch (recaptchaErr) {
+        console.warn('reCAPTCHA v3 token generation failed:', recaptchaErr);
+        setCaptchaError('認証処理でエラーが発生しました。再試行してください。');
       }
-    } catch (recaptchaErr) {
-      console.warn('reCAPTCHA v3 token generation failed:', recaptchaErr);
-      setCaptchaError('認証処理でエラーが発生しました。再試行してください。');
+    } else {
+      console.warn('reCAPTCHA site key is not configured. Skipping reCAPTCHA verification.');
     }    try {
       if (authMode === "login") {
         const res = await firebase.auth().signInWithEmailAndPassword(email, password);
@@ -796,6 +851,10 @@ ${subjectGuidance}
     handleImageInput(e, setImageData, setLoading, setImageLoading, setImageLoadedMsg, setError);
   };
 
+  const handleImageButtonClick = () => {
+    fileInputRef.current?.click();
+  };
+
   const handleSpeechInputWrapper = () => {
     handleSpeechInput(setQuestion, setError);
   };
@@ -1036,7 +1095,10 @@ ${subjectGuidance}
     setScrollToFollowup(true); // 追加: followupフォームへスクロール要求
   };
   // fetchHistory, saveUserProfileのラッパーを定義
-  const saveUserProfile = (profile, uid) => saveUserProfileApi(profile, uid, FIRESTORE_API_URL, setUserProfile, setGrade);
+  const saveUserProfile = (profile) => {
+    if (!user) return;
+    return saveUserProfileApi(profile, user.uid, FIRESTORE_API_URL, setUserProfile, setGrade);
+  };
 
   // Firebase認証トークンを取得する関数
   const getAuthToken = async () => {
@@ -1091,7 +1153,10 @@ ${subjectGuidance}
     return (
       <div className="App">
         <header className="App-header">
-          <h1>AI家庭教師「SeLf」</h1>
+          <h1 style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+            <img src="/ai-teacher-logo.png" alt="AI先生ロゴ" style={{ width: 48, height: 48 }} />
+            AI家庭教師「SeLf」
+          </h1>
           {/* 新規登録メッセージ表示 */}
           {registerMsg && (
             <div className="register-message">{registerMsg}</div>
@@ -1253,14 +1318,18 @@ ${subjectGuidance}
           </button>
         </div>        {/* タイトル（メニューバーの下） */}
         <div style={{ width: '100%', textAlign: 'center', marginBottom: 20 }}>
-          <h1 style={{ margin: 0 }}>
-            AI家庭教師「SeLf」            <div style={{ fontSize: '0.6em', fontWeight: 'normal', color: '#666', marginTop: 4 }}>
-              {userProfile.nickname ? 
-                `${getTimeBasedGreeting()}、${userProfile.nickname}さん！` : 
-                userProfile.name ?
-                  `${getTimeBasedGreeting()}、${userProfile.name}さん！` :
-                  `${getTimeBasedGreeting()}！`
-              }
+          <h1 style={{ margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+            <img src="/ai-teacher-logo.png" alt="AI先生ロゴ" style={{ width: 48, height: 48 }} />
+            <div>
+              AI家庭教師「SeLf」
+              <div style={{ fontSize: '0.6em', fontWeight: 'normal', color: '#666', marginTop: 4 }}>
+                {userProfile.nickname ? 
+                  `${getTimeBasedGreeting()}、${userProfile.nickname}さん！` : 
+                  userProfile.name ?
+                    `${getTimeBasedGreeting()}、${userProfile.name}さん！` :
+                    `${getTimeBasedGreeting()}！`
+                }
+              </div>
             </div>
           </h1>
         </div>
@@ -1310,15 +1379,15 @@ ${subjectGuidance}
                 </div>
               )}
               <div style={{ display: 'flex', gap: 8, marginBottom: 8, justifyContent: 'center' }}>
-                <label htmlFor="imageInput" style={{ background: '#e0e7ff', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', fontWeight: 'bold' }}>
-                  <span role="img" aria-label="カメラ" style={{ marginRight: 4 }}>📷</span><span style={{ fontWeight: 'bold' }}>画像から質問</span>
-                  <input id="imageInput" type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageInputWrapper} />
-                </label>
-                <button type="button" onClick={handleSpeechInputWrapper} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold' }}>
+                <button type="button" onClick={handleImageButtonClick} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold', borderRadius: 4, border: 'none', cursor: 'pointer' }}>
+                  <span role="img" aria-label="カメラ" style={{ marginRight: 4 }}>📷</span>画像から質問
+                </button>
+                <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImageInputWrapper} />
+                <button type="button" onClick={handleSpeechInputWrapper} style={{ background: '#e0e7ff', color: '#222', fontSize: 14, padding: '4px 10px', fontWeight: 'bold', borderRadius: 4, border: 'none', cursor: 'pointer' }}>
                   <span role="img" aria-label="マイク" style={{ marginRight: 4 }}>🎤</span>音声で質問
                 </button>
               </div>              <button type="submit" disabled={loading || !question || (userUsage.monthlyLimit - userUsage.currentUsage <= 0)} style={{ marginTop: 8, width: 180, alignSelf: 'center' }}>
-                {loading ? 'AIが考え中...' : '質問する'}
+                {loading ? '考え中...' : '質問する'}
               </button>
               {/* 残り質問回数表示 */}
               <div style={{ marginTop: 12, textAlign: 'center', fontSize: 14 }}>
@@ -1446,8 +1515,9 @@ ${subjectGuidance}
             user={user}
             userProfile={userProfile}
             setCurrentView={setCurrentView}
-            saveUserProfile={saveUserProfileApi}
+            saveUserProfile={saveUserProfile}
             setGrade={setGrade}
+            setUserProfile={setUserProfile}
           />
         )}
         

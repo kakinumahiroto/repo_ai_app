@@ -183,7 +183,7 @@ function ContactForm({ onClose, user, remainingUsage }) {
                 flex: 1
               }}
             >
-              <span>✖️ キャンセル</span>
+              <span>✖️ 取消</span>
             </button>
           </div>
           {typeof remainingUsage === 'number' && remainingUsage <= 0 && (

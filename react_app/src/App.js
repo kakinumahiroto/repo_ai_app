@@ -1153,7 +1153,10 @@ ${subjectGuidance}
     return (
       <div className="App">
         <header className="App-header">
-          <h1>AI家庭教師「SeLf」</h1>
+          <h1 style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+            <img src="/ai-teacher-logo.png" alt="AI先生ロゴ" style={{ width: 48, height: 48 }} />
+            AI家庭教師「SeLf」
+          </h1>
           {/* 新規登録メッセージ表示 */}
           {registerMsg && (
             <div className="register-message">{registerMsg}</div>
@@ -1315,14 +1318,18 @@ ${subjectGuidance}
           </button>
         </div>        {/* タイトル（メニューバーの下） */}
         <div style={{ width: '100%', textAlign: 'center', marginBottom: 20 }}>
-          <h1 style={{ margin: 0 }}>
-            AI家庭教師「SeLf」            <div style={{ fontSize: '0.6em', fontWeight: 'normal', color: '#666', marginTop: 4 }}>
-              {userProfile.nickname ? 
-                `${getTimeBasedGreeting()}、${userProfile.nickname}さん！` : 
-                userProfile.name ?
-                  `${getTimeBasedGreeting()}、${userProfile.name}さん！` :
-                  `${getTimeBasedGreeting()}！`
-              }
+          <h1 style={{ margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+            <img src="/ai-teacher-logo.png" alt="AI先生ロゴ" style={{ width: 48, height: 48 }} />
+            <div>
+              AI家庭教師「SeLf」
+              <div style={{ fontSize: '0.6em', fontWeight: 'normal', color: '#666', marginTop: 4 }}>
+                {userProfile.nickname ? 
+                  `${getTimeBasedGreeting()}、${userProfile.nickname}さん！` : 
+                  userProfile.name ?
+                    `${getTimeBasedGreeting()}、${userProfile.name}さん！` :
+                    `${getTimeBasedGreeting()}！`
+                }
+              </div>
             </div>
           </h1>
         </div>

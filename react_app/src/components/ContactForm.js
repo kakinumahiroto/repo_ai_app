@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CONTACT_API_URL } from '../App';
+import { CONTACT_API_URL } from '../utils/api';
 
 function ContactForm({ onClose, user, remainingUsage }) {
   const [subject, setSubject] = useState('');

@@ -20,7 +20,8 @@
     "firebase-admin": "11.11.1",
     "firebase-functions": "6.3.2",
     "langchain": "0.0.190",
-    "nodemailer": "^7.0.3"
+    "nodemailer": "^7.0.3",
+    "bcrypt": "^5.1.0"
   },
   "devDependencies": {
     "eslint": "^8.15.0",

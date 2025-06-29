@@ -1,18 +1,22 @@
+
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import axios from 'axios';
 import 'katex/dist/katex.min.css';
 import './App.css';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
+import 'firebase/compat/functions';
 import AuthForm from './components/AuthForm';
 import ChatBox from './components/ChatBox';
 import HistoryList from './components/HistoryList';
 import ContactForm from './components/ContactForm';
 import ProfileView from './components/ProfileView';
 import AdminUsageManager from './components/AdminUsageManager';
-import { sortHistory, saveUserProfile as saveUserProfileApi, fetchHistory as fetchHistoryApi, fetchUserProfile as fetchUserProfileApi } from './utils/api';
+import { sortHistory, saveUserProfile as saveUserProfileApi, fetchHistory as fetchHistoryApi, fetchUserProfile as fetchUserProfileApi, CONTACT_API_URL } from './utils/api';
 import { formatMathInput, getTimeBasedGreeting } from './utils/format';
 import { fetchUserUsage, incrementUserUsage, checkUsageLimit, createUserUsage } from './utils/usage';
+import { sendMfaCode, verifyMfaCode } from './utils/mfa';
+import MfaVerification from './components/MfaVerification';
 
 // Firestoreエミュレータ/本番のURLを環境変数から取得
 const FIRESTORE_API_URL = (() => {
@@ -46,10 +50,6 @@ const RECAPTCHA_SITE_KEY = (() => {
 })();
 
 // Cloud Functionsエミュレータ or 本番のURLを自動切り替え
-export const CONTACT_API_URL =
-  window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/ai-app-96b95/us-central1/contact'
-    : 'https://us-central1-ai-app-96b95.cloudfunctions.net/contact';
 
 if (!FIRESTORE_API_URL) {
   // eslint-disable-next-line no-console
@@ -77,7 +77,23 @@ const validatePassword = (pw) => {
 // 管理者ユーザーのメールアドレス
 const ADMIN_EMAIL = 'aiappself@gmail.com';
 
+// セッションタイムアウトの設定（ミリ秒）- 1時間
+const SESSION_TIMEOUT = 60 * 60 * 1000;
+
+// セッション最大有効期限（24時間）- 共有デバイス対策
+const MAX_SESSION_LIFETIME = 24 * 60 * 60 * 1000;
+
+// 共有デバイス検出のしきい値（30分以内のセッションは警告表示）
+const SHARED_DEVICE_WARNING_THRESHOLD = 30 * 60 * 1000;
+
 function App() {
+  // セッション復元・認証チェック用
+  const [isAuthChecking, setIsAuthChecking] = useState(false);
+  const [sessionUser, setSessionUser] = useState(null); // 復元されたユーザー
+  const [lastActivityTime, setLastActivityTime] = useState(Date.now()); // 最後のアクティビティ時刻
+  const [sessionCreatedTime, setSessionCreatedTime] = useState(null); // セッション作成時刻
+  const [showSessionWarning, setShowSessionWarning] = useState(false); // セッション警告表示フラグ
+  
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState(""); // 未使用
   const [loading, setLoading] = useState(false);
@@ -122,17 +138,71 @@ function App() {
   const [followupImageData, setFollowupImageData] = useState(null);
   const [userUsage, setUserUsage] = useState({ currentUsage: 0, monthlyLimit: 0 }); // 残り質問回数
 
+  // MFA状態管理
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaError, setMfaError] = useState("");
+  const [mfaLoading, setMfaLoading] = useState(false);
+  const [pendingUser, setPendingUser] = useState(null);
+  const [mfaCodeSent, setMfaCodeSent] = useState(false);
+
+  // 機密操作用の追加認証状態
+  const [sensitiveOperationPending, setSensitiveOperationPending] = useState(null);
+  const [lastSensitiveAuthTime, setLastSensitiveAuthTime] = useState(0);
+  
+  // 機密操作の再認証間隔（5分）
+  const SENSITIVE_OPERATION_TIMEOUT = 5 * 60 * 1000;
+
   // ファイル入力用のref
   const fileInputRef = useRef(null);
 
   // Firebase初期化とreCAPTCHA v3設定
   useEffect(() => {
+    console.log('=== Firebase初期化開始 ===');
+    console.log('既存のFirebaseアプリ数:', firebase.apps.length);
+    
     if (!firebase.apps.length) {
-      firebase.initializeApp({
+      console.log('Firebase初期化実行中...');
+      const config = {
         apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
         authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
         projectId: 'ai-app-96b95',
+      };
+      console.log('Firebase config:', {
+        ...config,
+        apiKey: config.apiKey ? config.apiKey.substring(0, 10) + '...' : 'undefined'
       });
+      
+      try {
+        firebase.initializeApp(config);
+        console.log('Firebase初期化成功');
+        console.log('利用可能なFirebaseサービス:', Object.keys(firebase));
+        console.log('firebase.functions:', firebase.functions);
+        
+        // Functions の初期化を確認
+        if (firebase.functions) {
+          console.log('Firebase Functions初期化成功');
+          // エミュレータ設定の確認
+          if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            console.log('ローカル環境検出 - Functionsエミュレータ設定確認');
+            try {
+              firebase.functions().useEmulator('localhost', 5001);
+              console.log('Functionsエミュレータ設定完了');
+            } catch (emulatorError) {
+              console.warn('Functionsエミュレータ設定エラー:', emulatorError);
+            }
+          }
+        } else {
+          console.error('Firebase Functions が利用できません');
+        }
+      } catch (error) {
+        console.error('Firebase初期化エラー:', error);
+      }
+    } else {
+      console.log('Firebase既に初期化済み');
+      console.log('現在のFirebaseアプリ:', firebase.apps[0].name);
+      console.log('利用可能なFirebaseサービス:', Object.keys(firebase));
+      console.log('firebase.functions:', firebase.functions);
     }
     
     // reCAPTCHA v3の動的読み込みと初期化
@@ -180,7 +250,10 @@ function App() {
     setAuthError("");
     setRegisterMsg("");
     setCaptchaError("");
-    
+    setMfaError("");
+    setMfaRequired(false);
+    setPendingUser(null);
+    setMfaCodeSent(false);
     // パスワードバリデーション
     if (authMode === "register" || authMode === "login") {
       const pwErr = validatePassword(password);
@@ -188,7 +261,8 @@ function App() {
         setAuthError(pwErr);
         return;
       }
-    }    // reCAPTCHA v3トークンの取得
+    }
+    // reCAPTCHA v3トークンの取得
     let recaptchaToken = null;
     if (RECAPTCHA_SITE_KEY) {
       try {
@@ -202,12 +276,71 @@ function App() {
       }
     } else {
       console.warn('reCAPTCHA site key is not configured. Skipping reCAPTCHA verification.');
-    }    try {
+    }
+    try {
       if (authMode === "login") {
+        console.log('=== ログイン処理開始 ===');
+        console.log('Email:', email);
+        console.log('Firebase auth object:', firebase.auth());
+        
         const res = await firebase.auth().signInWithEmailAndPassword(email, password);
-        setUser(res.user);
-        // ログイン成功時に利用回数情報を取得
-        await loadUserUsage(res.user.email);      } else {
+        console.log('ログイン成功:', res.user.email);
+        
+        // ログイン時は必ず認証メール送信＆MFA画面へ遷移
+        setPendingUser(res.user);
+        setMfaRequired(true);
+        
+        console.log('=== MFA認証コード送信開始 ===');
+        console.log('ログイン後のユーザー状態:', {
+          uid: res.user.uid,
+          email: res.user.email,
+          emailVerified: res.user.emailVerified
+        });
+        
+        // Firebase Authの現在のユーザー状態を確認
+        const currentUser = firebase.auth().currentUser;
+        console.log('現在のFirebase Authユーザー:', currentUser ? currentUser.email : 'なし');
+        
+        // ユーザー状態が更新されるまで少し待機
+        if (!currentUser || currentUser.uid !== res.user.uid) {
+          console.log('ユーザー状態の更新を待機中...');
+          await new Promise(resolve => setTimeout(resolve, 1500)); // 1秒から1.5秒に延長
+          console.log('待機後の現在のユーザー:', firebase.auth().currentUser?.email);
+        }
+        
+        // 追加：認証状態の確認を再実行
+        const finalUser = firebase.auth().currentUser;
+        if (!finalUser || finalUser.uid !== res.user.uid) {
+          console.warn('認証状態が不安定です。MFA送信をスキップします。');
+          setMfaError('認証状態が不安定です。再ログインしてください。');
+          return;
+        }
+        
+        try {
+          // Firebase functions の初期化確認
+          if (!firebase.functions) {
+            throw new Error('firebase.functions が利用できません。Firebase SDK の初期化を確認してください。');
+          }
+          
+          console.log('MFA認証コード送信実行中...', {
+            userEmail: finalUser.email,
+            userUid: finalUser.uid
+          });
+          
+          // 修正: mfa.js の sendMfaCode 関数を直接呼び出し
+          const result = await sendMfaCode(res.user.email);
+          console.log('MFA認証コード送信成功 - 結果:', result);
+          
+          setMfaCodeSent(true);
+        } catch (err) {
+          console.error('=== MFA認証コード送信エラー詳細 ===');
+          console.error('Error type:', err.constructor.name);
+          console.error('Error message:', err.message);
+          console.error('Error stack:', err.stack);
+          console.error('Full error object:', err);
+          setMfaError('認証コード送信に失敗しました: ' + (err.message || ''));
+        }
+      } else {
         const res = await firebase.auth().createUserWithEmailAndPassword(email, password);
         // 新規登録時にプロファイルを保存（デフォルト学年設定）
         const profileData = {
@@ -223,7 +356,6 @@ function App() {
         } catch (profileError) {
           console.error('プロファイル保存エラー:', profileError);
         }
-        
         // 新規ユーザーのuserUsage初期化
         try {
           await createUserUsage(res.user.email, FIRESTORE_API_URL);
@@ -231,7 +363,6 @@ function App() {
         } catch (usageError) {
           console.error('userUsage初期化エラー:', usageError);
         }
-        
         setRegisterMsg("新規登録しました！ログインしてね！"); // 新規登録時にメッセージ表示
         setNickname(""); // ニックネームをクリア
         setRegisterGrade("小学生"); // 学年もリセット
@@ -240,33 +371,192 @@ function App() {
     } catch (err) {
       setAuthError(err.message);
     }
-  };  // Firebase認証の永続化設定（3日間）
-  useEffect(() => {
-    if (firebase.auth().currentUser) return;
-    firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-    // セッションの有効期限を3日間に設定
-    firebase.auth().onAuthStateChanged(user => {
-      console.log('=== Firebase Auth State Changed ===');
-      console.log('User:', user ? { uid: user.uid, email: user.email, emailVerified: user.emailVerified } : 'null');
+  };
+
+  // MFA認証成功時の処理
+  const handleMfaSuccess = async (rememberSession = false) => {
+    if (sensitiveOperationPending) {
+      // 機密操作のための再認証の場合
+      setLastSensitiveAuthTime(Date.now());
+      const operation = sensitiveOperationPending;
+      setSensitiveOperationPending(null);
+      setMfaRequired(false);
+      setPendingUser(null);
+      setMfaCode("");
+      setMfaError("");
+      setMfaCodeSent(false);
       
+      // 保留中の機密操作を実行
+      if (operation === 'admin') {
+        setCurrentView('admin');
+      } else if (operation === 'profile_save') {
+        // プロファイル保存処理をここで実行
+        // 必要に応じて実装
+      }
+    } else {
+      // 通常のログイン/セッション復元の場合
+      setUser(pendingUser);
+      await loadUserUsage(pendingUser.email);
+      
+      // セッション持続期間の設定
+      if (!rememberSession) {
+        // 短期セッション（1時間で自動ログアウト）
+        firebase.auth().setPersistence(firebase.auth.Auth.Persistence.SESSION);
+      } else {
+        // 長期セッション（ブラウザ閉じるまで持続）
+        firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+      }
+      
+      setMfaRequired(false);
+      setPendingUser(null);
+      setMfaCode("");
+      setMfaError("");
+      setMfaCodeSent(false);
+      setShowSessionWarning(false);
+    }
+  };
+
+  // 機密操作の実行前チェック
+  const requireSensitiveAuth = async (operation) => {
+    if (!user) return false;
+    
+    const timeSinceLastAuth = Date.now() - lastSensitiveAuthTime;
+    if (timeSinceLastAuth < SENSITIVE_OPERATION_TIMEOUT) {
+      // 最近認証済みの場合は直接実行
+      return true;
+    }
+
+    // 再認証が必要
+    console.log(`機密操作 ${operation} のため再認証を要求`);
+    setSensitiveOperationPending(operation);
+    setPendingUser(user);
+    setMfaRequired(true);
+    
+    try {
+      const result = await sendMfaCode(user.email);
+      console.log('機密操作用MFA認証コード送信成功:', result);
+      setMfaCodeSent(true);
+      return false; // 認証待ち
+    } catch (err) {
+      console.error('機密操作用MFA認証コード送信エラー:', err);
+      setMfaError('認証コード送信に失敗しました: ' + (err.message || ''));
+      return false;
+    }
+  };
+  useEffect(() => {
+    firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    const unsubscribe = firebase.auth().onAuthStateChanged(user => {
+      setIsAuthChecking(false);
       if (user) {
-        user.getIdTokenResult().then(idTokenResult => {
-          console.log('Token result:', {
-            token: idTokenResult.token ? 'present' : 'missing',
-            expirationTime: idTokenResult.expirationTime,
-            issuedAtTime: idTokenResult.issuedAtTime,
-            signInProvider: idTokenResult.signInProvider
-          });
+        // セッション作成時刻をチェック（新規または古いセッション検出）
+        const storedSessionTime = localStorage.getItem(`sessionTime_${user.uid}`);
+        const currentTime = Date.now();
+        
+        if (!storedSessionTime) {
+          // 新規セッション
+          setSessionCreatedTime(currentTime);
+          localStorage.setItem(`sessionTime_${user.uid}`, currentTime.toString());
+          setShowSessionWarning(false);
+        } else {
+          const sessionAge = currentTime - parseInt(storedSessionTime);
+          setSessionCreatedTime(parseInt(storedSessionTime));
           
-          const expiresIn = 3 * 24 * 60 * 60 * 1000; // 3日
-          window.localStorage.setItem('firebaseSessionExpires', Date.now() + expiresIn);
-        }).catch(tokenError => {
-          console.error('Failed to get ID token:', tokenError);
+          // セッション有効期限チェック
+          if (sessionAge > MAX_SESSION_LIFETIME) {
+            console.log('セッションが期限切れです。自動ログアウトします。');
+            firebase.auth().signOut();
+            localStorage.removeItem(`sessionTime_${user.uid}`);
+            return;
+          }
+          
+          // 共有デバイス警告（最近のセッション）
+          if (sessionAge < SHARED_DEVICE_WARNING_THRESHOLD) {
+            setShowSessionWarning(true);
+          }
+        }
+        
+        setSessionUser(user); // 復元ユーザーを保持
+        setLastActivityTime(Date.now()); // アクティビティタイムを更新
+      } else {
+        setSessionUser(null);
+        setUser(null);
+        setSessionCreatedTime(null);
+        setShowSessionWarning(false);
+        // ログアウト時はすべてのセッション時刻をクリア
+        Object.keys(localStorage).forEach(key => {
+          if (key.startsWith('sessionTime_')) {
+            localStorage.removeItem(key);
+          }
         });
       }
     });
-  }, []);// ログアウト処理
+    return () => unsubscribe();
+  }, []);
+
+  // セッションタイムアウトチェック（アクティビティ監視）
+  useEffect(() => {
+    const checkSessionTimeout = () => {
+      if (sessionUser && (Date.now() - lastActivityTime) > SESSION_TIMEOUT) {
+        console.log('セッションタイムアウトのため自動ログアウト');
+        handleLogout();
+      }
+    };
+
+    // 1分ごとにセッションタイムアウトをチェック
+    const interval = setInterval(checkSessionTimeout, 60000);
+    
+    // ユーザーアクティビティ監視（マウス移動、クリック、キーボード入力）
+    const updateActivity = () => {
+      if (sessionUser || user) {
+        setLastActivityTime(Date.now());
+      }
+    };
+
+    document.addEventListener('mousemove', updateActivity);
+    document.addEventListener('keypress', updateActivity);
+    document.addEventListener('click', updateActivity);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('mousemove', updateActivity);
+      document.removeEventListener('keypress', updateActivity);
+      document.removeEventListener('click', updateActivity);
+    };
+  }, [sessionUser, user, lastActivityTime]);
+
+  // セッション復元ボタン（セキュリティ強化版）
+  const handleRestoreSession = async () => {
+    if (sessionUser) {
+      // セッションタイムアウトチェック
+      if ((Date.now() - lastActivityTime) > SESSION_TIMEOUT) {
+        console.log('セッションがタイムアウトしました');
+        setMfaError('セッションがタイムアウトしました。再度ログインしてください。');
+        await handleLogout();
+        return;
+      }
+
+      // セキュリティ強化：セッション復元時もMFA認証を要求
+      console.log('=== セッション復元時のMFA認証開始 ===');
+      setPendingUser(sessionUser);
+      setMfaRequired(true);
+      
+      try {
+        console.log('セッション復元時のMFA認証コード送信中...', sessionUser.email);
+        const result = await sendMfaCode(sessionUser.email);
+        console.log('セッション復元時のMFA認証コード送信成功:', result);
+        setMfaCodeSent(true);
+      } catch (err) {
+        console.error('セッション復元時のMFA認証コード送信エラー:', err);
+        setMfaError('認証コード送信に失敗しました: ' + (err.message || ''));
+      }
+    }
+  };
   const handleLogout = async () => {
+    // ログアウト前にセッション時刻をクリア
+    if (user) {
+      localStorage.removeItem(`sessionTime_${user.uid}`);
+    }
+    
     await firebase.auth().signOut();
     setUser(null);
     setUserUsage({ currentUsage: 0, monthlyLimit: 0 });
@@ -284,6 +574,18 @@ function App() {
     // 履歴をクリア（ユーザー切り替え時の履歴混在を防止）
     setHistory([]);
     setUserProfile({ name: "", nickname: "", weakSubjects: [], preferredGrade: "小学生" });
+    
+    // セキュリティ強化：機密操作関連の状態もクリア
+    setSensitiveOperationPending(null);
+    setLastSensitiveAuthTime(0);
+    setMfaRequired(false);
+    setPendingUser(null);
+    setMfaCodeSent(false);
+    setMfaError("");
+    
+    // セッション関連の状態もクリア
+    setSessionCreatedTime(null);
+    setShowSessionWarning(false);
   };
 
   // --- Firestoreから履歴を取得（ユーザIDでフィルタリング） ---
@@ -1149,7 +1451,43 @@ ${subjectGuidance}
   }, [user, loadUserUsage]);
 
   // UI
+  if (isAuthChecking) {
+    return <div style={{ textAlign: 'center', marginTop: 80 }}>認証状態を確認中...</div>;
+  }
   if (!user) {
+    // MFA認証画面
+    if (mfaRequired && pendingUser) {
+      return (
+        <div className="App">
+          <header className="App-header">
+            <MfaVerification
+              email={pendingUser.email}
+              onSuccess={handleMfaSuccess}
+              onCancel={() => {
+                setMfaRequired(false);
+                setPendingUser(null);
+                setMfaCodeSent(false);
+                setMfaError("");
+                setSensitiveOperationPending(null);
+              }}
+              mfaError={mfaError}
+              setMfaError={setMfaError}
+              mfaLoading={mfaLoading}
+              setMfaLoading={setMfaLoading}
+              mfaCodeSent={mfaCodeSent}
+              setMfaCodeSent={setMfaCodeSent}
+              isSensitiveOperation={!!sensitiveOperationPending}
+              operationType={sensitiveOperationPending}
+              sessionInfo={sessionCreatedTime ? {
+                created: new Date(sessionCreatedTime).toLocaleString('ja-JP'),
+                isRecent: showSessionWarning
+              } : null}
+            />
+          </header>
+        </div>
+      );
+    }
+    // 通常ログイン画面＋セッション復元ボタン
     return (
       <div className="App">
         <header className="App-header">
@@ -1181,10 +1519,120 @@ ${subjectGuidance}
             handleAuth={handleAuth}
             authError={authError}
           />
+          {/* セッション復元ボタン（セキュリティ強化版） */}
+          {sessionUser && (
+            <div style={{ marginTop: 24, textAlign: 'center' }}>
+              {/* 共有デバイス警告 */}
+              {showSessionWarning && (
+                <div style={{ 
+                  background: '#fef3cd', 
+                  border: '1px solid #faebcc', 
+                  borderRadius: 6, 
+                  padding: '12px', 
+                  marginBottom: 16,
+                  fontSize: 14,
+                  color: '#856404'
+                }}>
+                  <div style={{ fontWeight: 'bold', marginBottom: 4 }}>⚠️ セキュリティ警告</div>
+                  <div style={{ fontSize: 12 }}>
+                    最近のセッションが検出されました。<br/>
+                    共有デバイスをご利用の場合は、必ずご自分のアカウントかご確認ください。
+                  </div>
+                </div>
+              )}
+              
+              <p style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
+                前回のセッションが残っています
+              </p>
+              
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
+                <button 
+                  onClick={handleRestoreSession} 
+                  style={{ 
+                    background: '#e0e7ff', 
+                    color: '#222', 
+                    fontWeight: 'bold', 
+                    borderRadius: 6, 
+                    border: 'none', 
+                    padding: '8px 18px', 
+                    fontSize: 15, 
+                    cursor: 'pointer' 
+                  }}
+                >
+                  続きから始める（認証必須）
+                </button>
+                
+                <button 
+                  onClick={async () => {
+                    // セッションを強制クリア
+                    await handleLogout();
+                    setAuthMode('login');
+                  }}
+                  style={{ 
+                    background: '#fee', 
+                    color: '#d63384', 
+                    fontWeight: 'bold', 
+                    borderRadius: 6, 
+                    border: '1px solid #f5c6cb', 
+                    padding: '8px 18px', 
+                    fontSize: 15, 
+                    cursor: 'pointer' 
+                  }}
+                >
+                  新規ログイン
+                </button>
+              </div>
+              
+              <p style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+                ※セキュリティのため認証コードをお送りします
+              </p>
+              
+              {sessionCreatedTime && (
+                <p style={{ fontSize: 11, color: '#aaa', marginTop: 8 }}>
+                  セッション開始: {new Date(sessionCreatedTime).toLocaleString('ja-JP')}
+                </p>
+              )}
+            </div>
+          )}
         </header>
       </div>
     );
-  }  return (
+  }
+
+  // ログイン済みユーザーに対するMFA認証画面
+  if (mfaRequired && pendingUser && user) {
+    return (
+      <div className="App">
+        <header className="App-header">
+          <MfaVerification
+            email={pendingUser.email}
+            onSuccess={handleMfaSuccess}
+            onCancel={() => {
+              setMfaRequired(false);
+              setPendingUser(null);
+              setMfaCodeSent(false);
+              setMfaError("");
+              setSensitiveOperationPending(null);
+            }}
+            mfaError={mfaError}
+            setMfaError={setMfaError}
+            mfaLoading={mfaLoading}
+            setMfaLoading={setMfaLoading}
+            mfaCodeSent={mfaCodeSent}
+            setMfaCodeSent={setMfaCodeSent}
+            isSensitiveOperation={!!sensitiveOperationPending}
+            operationType={sensitiveOperationPending}
+            sessionInfo={sessionCreatedTime ? {
+              created: new Date(sessionCreatedTime).toLocaleString('ja-JP'),
+              isRecent: showSessionWarning
+            } : null}
+          />
+        </header>
+      </div>
+    );
+  }
+
+  return (
     <div className="App">
       <header className="App-header">
         {/* 上部のメニューバー */}
@@ -1278,7 +1726,13 @@ ${subjectGuidance}
                 {/* 管理者メニュー */}
                 {isAdmin && (
                   <button 
-                    onClick={() => { setCurrentView('admin'); setDropdownOpen(false); }}
+                    onClick={async () => { 
+                      setDropdownOpen(false);
+                      const authorized = await requireSensitiveAuth('admin');
+                      if (authorized) {
+                        setCurrentView('admin');
+                      }
+                    }}
                     style={{
                       display: 'block',
                       width: '100%',
@@ -1528,6 +1982,7 @@ ${subjectGuidance}
             onUserUsageUpdate={handleUserUsageUpdate}
           />
         )}
+
       </header>
     </div>
   );

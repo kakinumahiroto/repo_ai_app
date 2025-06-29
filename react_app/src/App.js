@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import axios from 'axios';
 import 'katex/dist/katex.min.css';
@@ -146,6 +145,12 @@ function App() {
   const [pendingUser, setPendingUser] = useState(null);
   const [mfaCodeSent, setMfaCodeSent] = useState(false);
 
+  // ログイン試行回数制限
+  const [loginAttempts, setLoginAttempts] = useState(0);
+  const [isLoginBlocked, setIsLoginBlocked] = useState(false);
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
+  const MAX_LOGIN_ATTEMPTS = 10;
+
   // 機密操作用の追加認証状態
   const [sensitiveOperationPending, setSensitiveOperationPending] = useState(null);
   const [lastSensitiveAuthTime, setLastSensitiveAuthTime] = useState(0);
@@ -279,12 +284,24 @@ function App() {
     }
     try {
       if (authMode === "login") {
+        // ログイン試行回数制限チェック
+        if (isLoginBlocked) {
+          setAuthError('ログイン試行回数が上限に達しました。パスワードをリセットしてください。');
+          setShowPasswordReset(true);
+          return;
+        }
+
         console.log('=== ログイン処理開始 ===');
         console.log('Email:', email);
         console.log('Firebase auth object:', firebase.auth());
         
         const res = await firebase.auth().signInWithEmailAndPassword(email, password);
         console.log('ログイン成功:', res.user.email);
+        
+        // ログイン成功時は試行回数をリセット
+        setLoginAttempts(0);
+        setIsLoginBlocked(false);
+        setShowPasswordReset(false);
         
         // ログイン時は必ず認証メール送信＆MFA画面へ遷移
         setPendingUser(res.user);
@@ -369,7 +386,80 @@ function App() {
         // 新規登録後は自動ログインしないのでsetUserは呼ばない
       }
     } catch (err) {
-      setAuthError(err.message);
+      console.error('認証エラー:', err);
+      
+      // ログイン失敗時の試行回数制限処理
+      if (authMode === "login") {
+        const newAttempts = loginAttempts + 1;
+        setLoginAttempts(newAttempts);
+        
+        if (newAttempts >= MAX_LOGIN_ATTEMPTS) {
+          setIsLoginBlocked(true);
+          setShowPasswordReset(true);
+          setAuthError(`ログイン試行回数が上限（${MAX_LOGIN_ATTEMPTS}回）に達しました。パスワードをリセットしてください。`);
+          
+          // 管理者にメール通知を送信
+          try {
+            console.log('=== 管理者通知メール送信開始 ===');
+            console.log('送信メールアドレス:', email);
+            
+            const functions = firebase.functions();
+            const sendNotification = functions.httpsCallable('sendLoginLimitNotification');
+            
+            const result = await sendNotification({ email: email });
+            console.log('管理者への通知処理結果:', result);
+            
+            if (result.data.success) {
+              console.log('通知処理成功:', result.data.message);
+            } else {
+              console.warn('通知処理に問題がありました:', result.data.message);
+            }
+          } catch (notifyErr) {
+            console.error('=== 管理者への通知処理エラー詳細 ===');
+            console.error('Error type:', notifyErr.constructor.name);
+            console.error('Error code:', notifyErr.code);
+            console.error('Error message:', notifyErr.message);
+            console.error('Error details:', notifyErr.details);
+            console.error('Full error object:', notifyErr);
+            
+            // 通知エラーでもログイン制限は継続
+            console.warn('通知送信に失敗しましたが、ログイン制限は有効です');
+          }
+        } else {
+          setAuthError(`${err.message} (試行回数: ${newAttempts}/${MAX_LOGIN_ATTEMPTS})`);
+        }
+      } else {
+        setAuthError(err.message);
+      }
+    }
+  };
+
+  // パスワードリセット処理
+  const handlePasswordReset = async () => {
+    if (!email) {
+      setAuthError('パスワードリセットにはメールアドレスが必要です。');
+      return;
+    }
+
+    try {
+      console.log('=== パスワードリセット開始 ===');
+      console.log('リセット対象メールアドレス:', email);
+      
+      await firebase.auth().sendPasswordResetEmail(email);
+      
+      console.log('パスワードリセットメール送信成功');
+      setRegisterMsg('パスワードリセットメールを送信しました。メールを確認してください。');
+      setAuthError('');
+      setShowPasswordReset(false);
+      setLoginAttempts(0);
+      setIsLoginBlocked(false);
+    } catch (err) {
+      console.error('=== パスワードリセットエラー詳細 ===');
+      console.error('Error type:', err.constructor.name);
+      console.error('Error code:', err.code);
+      console.error('Error message:', err.message);
+      console.error('Full error object:', err);
+      setAuthError('パスワードリセットメールの送信に失敗しました: ' + err.message);
     }
   };
 
@@ -909,6 +999,7 @@ ${subjectGuidance}
         console.error('=== API呼び出しエラー ===');
         console.error('Error type:', err.constructor.name);
         console.error('Error message:', err.message);
+        console.error('Error stack:', err.stack);
         if (err.response) {
           console.error('Response status:', err.response.status);
           console.error('Response data:', err.response.data);
@@ -1029,8 +1120,6 @@ ${subjectGuidance}
       
       setError("AI回答の取得に失敗しました: " + (error?.response?.data?.error || error?.message || ''));
       console.error('handleSubmit error', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -1303,6 +1392,15 @@ ${subjectGuidance}
   //         thread: updatedThread,
   //       };
   //     });
+      
+  //     // --- 追加質問でも質問回数をインクリメント ---
+  //     try {
+  //       const usage = await incrementUserUsage(user.email, FIRESTORE_API_URL);
+  //       setUserUsage(usage);
+  //     } catch (usageErr) {
+  //       console.error('質問回数インクリメントエラー:', usageErr);
+  //     }
+      
   //     setFollowupImageData(null); // 送信後のみクリア
   //   } catch (err) {
   //     setFollowupError("AIへの再質問に失敗しました: " + (err?.message || ''));
@@ -1450,6 +1548,37 @@ ${subjectGuidance}
     }
   }, [user, loadUserUsage]);
 
+  // 開発用: Gmail設定テスト機能（管理者のみ）
+  const [gmailTestResult, setGmailTestResult] = useState(null);
+  const [gmailTestLoading, setGmailTestLoading] = useState(false);
+
+  const testGmailConfiguration = async (sendTestEmail = false) => {
+    if (user?.email !== ADMIN_EMAIL) {
+      console.warn('Gmail設定テストは管理者のみ利用可能です');
+      return;
+    }
+
+    setGmailTestLoading(true);
+    setGmailTestResult(null);
+
+    try {
+      console.log('=== Gmail設定テスト開始 ===');
+      const testGmailConfig = firebase.functions().httpsCallable('testGmailConfiguration');
+      const result = await testGmailConfig({ sendTestEmail: sendTestEmail });
+      
+      console.log('Gmail設定テスト結果:', result.data);
+      setGmailTestResult(result.data);
+    } catch (error) {
+      console.error('Gmail設定テストエラー:', error);
+      setGmailTestResult({
+        success: false,
+        error: error.message
+      });
+    } finally {
+      setGmailTestLoading(false);
+    }
+  };
+
   // UI
   if (isAuthChecking) {
     return <div style={{ textAlign: 'center', marginTop: 80 }}>認証状態を確認中...</div>;
@@ -1518,6 +1647,9 @@ ${subjectGuidance}
             setGrade={setRegisterGrade}
             handleAuth={handleAuth}
             authError={authError}
+            showPasswordReset={showPasswordReset}
+            handlePasswordReset={handlePasswordReset}
+            isLoginBlocked={isLoginBlocked}
           />
           {/* セッション復元ボタン（セキュリティ強化版） */}
           {sessionUser && (
@@ -1560,6 +1692,7 @@ ${subjectGuidance}
                   }}
                 >
                   続きから始める（認証必須）
+               
                 </button>
                 
                 <button 

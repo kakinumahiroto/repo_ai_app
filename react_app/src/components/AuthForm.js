@@ -12,7 +12,10 @@ function AuthForm({
   grade,
   setGrade,
   handleAuth,
-  authError
+  authError,
+  showPasswordReset,
+  handlePasswordReset,
+  isLoginBlocked
 }) {  return (
     <form onSubmit={handleAuth} style={{ maxWidth: 360, margin: '40px auto', background: '#fff', borderRadius: 8, padding: 24, boxShadow: '0 2px 8px #bfcfff' }} className="auth-form">
       <h2 style={{ marginBottom: 16, textAlign: 'center', color: '#374151' }}>{authMode === "login" ? "ログイン" : "新規登録"}</h2><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="メールアドレス" required style={{ width: '100%', marginBottom: 12, padding: 8, fontSize: 15 }} />
@@ -55,7 +58,41 @@ function AuthForm({
         </>
       )}
       {authMode === "login" && <div style={{ marginBottom: 16 }}></div>}
-      <button type="submit" style={{ width: '100%', marginBottom: 8 }}>{authMode === "login" ? "ログイン" : "登録"}</button>
+      
+      {/* ログインブロック時のパスワードリセットボタン */}
+      {authMode === "login" && showPasswordReset && (
+        <button 
+          type="button" 
+          onClick={handlePasswordReset}
+          style={{ 
+            width: '100%', 
+            marginBottom: 8,
+            backgroundColor: '#dc3545',
+            color: 'white',
+            padding: '10px',
+            border: 'none',
+            borderRadius: '4px',
+            fontSize: '14px',
+            cursor: 'pointer'
+          }}
+        >
+          パスワードをリセット
+        </button>
+      )}
+      
+      {/* 通常のログイン/登録ボタン */}
+      <button 
+        type="submit" 
+        disabled={isLoginBlocked}
+        style={{ 
+          width: '100%', 
+          marginBottom: 8,
+          opacity: isLoginBlocked ? 0.6 : 1,
+          cursor: isLoginBlocked ? 'not-allowed' : 'pointer'
+        }}
+      >
+        {authMode === "login" ? "ログイン" : "登録"}
+      </button>
       <div style={{ textAlign: 'right', fontSize: 13 }}>
         <span style={{ cursor: 'pointer', color: '#4f46e5' }} onClick={() => setAuthMode(authMode === "login" ? "register" : "login")}>{authMode === "login" ? "新規登録はこちら" : "ログインはこちら"}</span>
       </div>

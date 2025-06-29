@@ -435,6 +435,179 @@ const mfa = require('./mfa');
 exports.sendMfaCode = mfa.sendMfaCode;
 exports.verifyMfaCode = mfa.verifyMfaCode;
 
+// --- ログイン試行上限通知機能 ---
+exports.sendLoginLimitNotification = functions.https.onCall(async (data, context) => {
+  try {
+    logger.info('=== ログイン試行上限通知開始 ===');
+    logger.info('Request data:', data);
+    logger.info('Context:', context);
+    
+    // データ構造を確認してメールアドレスを取得
+    let email = data.email || data?.data?.email || (typeof data === 'string' ? data : null);
+    
+    logger.info('Extracted email:', email);
+    
+    if (!email) {
+      logger.error('メールアドレスが見つかりません:', { data, context });
+      throw new functions.https.HttpsError('invalid-argument', 'メールアドレスが必要です');
+    }
+    
+    // 環境変数の確認
+    const gmailUser = process.env.GMAIL_USER || 'aiappself@gmail.com';
+    const gmailPassword = process.env.GMAIL_APP_PASSWORD;
+    
+    logger.info('Gmail settings:', {
+      user: gmailUser,
+      hasPassword: !!gmailPassword,
+      passwordLength: gmailPassword ? gmailPassword.length : 0
+    });
+    
+    // Gmail設定が不完全な場合はログのみで処理を続行
+    if (!gmailPassword || gmailPassword === 'your_gmail_app_password_here') {
+      logger.warn('Gmail設定が不完全です。ログのみで通知を記録します。');
+      logger.info(`[管理者通知] ログイン試行上限超過 - メールアドレス: ${email}`);
+      
+      // Firestoreに通知ログを保存
+      try {
+        const db = admin.firestore();
+        
+        // タイムスタンプの生成（安全な方法）
+        let timestamp;
+        try {
+          timestamp = admin.firestore.FieldValue.serverTimestamp();
+        } catch (timestampError) {
+          logger.warn('serverTimestamp利用不可、現在時刻を使用:', timestampError);
+          timestamp = new Date();
+        }
+        
+        const docRef = await db.collection('loginLimitNotifications').add({
+          email: email,
+          timestamp: timestamp,
+          notificationSent: false,
+          reason: 'Gmail設定未完了のためメール送信をスキップ'
+        });
+        logger.info('通知ログをFirestoreに保存しました - Doc ID:', docRef.id);
+      } catch (firestoreError) {
+        logger.error('Firestore保存エラー:', firestoreError);
+      }
+      
+      return { 
+        success: true, 
+        message: 'ログイン試行上限通知をログに記録しました（メール送信はスキップ）' 
+      };
+    }
+    
+    // メール送信を試行
+    try {
+      const nodemailer = require('nodemailer');
+      
+      // Gmail設定
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: gmailUser,
+          pass: gmailPassword
+        }
+      });
+      
+      // 接続テスト
+      await transporter.verify();
+      logger.info('Gmail SMTP接続確認成功');
+      
+      const mailOptions = {
+        from: gmailUser,
+        to: 'aiappself@gmail.com',
+        subject: 'ログイン試行上限超過通知',
+        text: `メールアドレス：${email}\n\nログイン試行回数が上限に達しました。`,
+        html: `
+          <h2>ログイン試行上限超過通知</h2>
+          <p><strong>メールアドレス：</strong>${email}</p>
+          <p>ログイン試行回数が上限に達しました。</p>
+          <p>必要に応じて対応をお願いします。</p>
+        `
+      };
+      
+      await transporter.sendMail(mailOptions);
+      logger.info('ログイン試行上限通知メール送信成功:', email);
+      
+      // Firestoreに成功ログを保存
+      try {
+        const db = admin.firestore();
+        
+        // タイムスタンプの生成（安全な方法）
+        let timestamp;
+        try {
+          timestamp = admin.firestore.FieldValue.serverTimestamp();
+        } catch (timestampError) {
+          logger.warn('serverTimestamp利用不可、現在時刻を使用:', timestampError);
+          timestamp = new Date();
+        }
+        
+        const docRef = await db.collection('loginLimitNotifications').add({
+          email: email,
+          timestamp: timestamp,
+          notificationSent: true,
+          reason: 'メール送信成功'
+        });
+        logger.info('成功ログをFirestoreに保存しました - Doc ID:', docRef.id);
+      } catch (firestoreError) {
+        logger.error('Firestore保存エラー:', firestoreError);
+      }
+      
+      return { success: true, message: '通知メールを送信しました' };
+      
+    } catch (emailError) {
+      logger.error('メール送信エラー:', emailError);
+      
+      // メール送信失敗でもログは残す
+      try {
+        const db = admin.firestore();
+        
+        // タイムスタンプの生成（安全な方法）
+        let timestamp;
+        try {
+          timestamp = admin.firestore.FieldValue.serverTimestamp();
+        } catch (timestampError) {
+          logger.warn('serverTimestamp利用不可、現在時刻を使用:', timestampError);
+          timestamp = new Date();
+        }
+        
+        await db.collection('loginLimitNotifications').add({
+          email: email,
+          timestamp: timestamp,
+          notificationSent: false,
+          reason: 'メール送信エラー: ' + emailError.message,
+          error: emailError.toString()
+        });
+        logger.info('エラーログをFirestoreに保存しました');
+      } catch (firestoreError) {
+        logger.error('Firestore保存エラー:', firestoreError);
+      }
+      
+      // エラーを投げずに警告として処理
+      logger.warn('メール送信に失敗しましたが、処理を継続します');
+      return { 
+        success: true, 
+        message: 'ログイン試行上限通知をログに記録しました（メール送信は失敗）' 
+      };
+    }
+    
+  } catch (error) {
+    logger.error('ログイン試行上限通知エラー:', error);
+    
+    // 重要なエラーのみ例外として投げる
+    if (error.code === 'invalid-argument') {
+      throw error;
+    }
+    
+    // その他のエラーは警告として処理
+    return { 
+      success: false, 
+      message: 'エラーが発生しましたが処理を継続します: ' + error.message 
+    };
+  }
+});
+
 // Create and deploy your first functions
 // https://firebase.google.com/docs/functions/get-started
 

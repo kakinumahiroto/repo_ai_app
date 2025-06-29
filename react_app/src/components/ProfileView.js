@@ -259,6 +259,25 @@ const ProfileView = ({ user, userProfile, setCurrentView, saveUserProfile, setGr
             </div>
           )}
         </div>
+        {/* MFA設定セクション */}
+        <div className="mfa-settings" style={{ marginBottom: 24, marginTop: 24, padding: 16, border: '1px solid #e5e7eb', borderRadius: 8, background: '#f9fafb' }}>
+          <h3 style={{ margin: 0, fontSize: 18, color: '#374151' }}>多要素認証設定</h3>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+            <input
+              type="checkbox"
+              checked={userProfile.mfaEnabled || false}
+              onChange={async (e) => {
+                // ON/OFF時にAPIで保存
+                const updatedProfile = { ...userProfile, mfaEnabled: e.target.checked, mfaLastEnabled: new Date().toISOString() };
+                await saveUserProfile(updatedProfile);
+              }}
+            />
+            メール認証を有効にする
+          </label>
+          {userProfile.mfaEnabled && (
+            <p style={{ color: 'green', margin: 0, marginTop: 8 }}>✓ メール認証が有効です</p>
+          )}
+        </div>
         {saveMessage && (
           <div style={{ color: '#10b981', marginTop: 12, textAlign: 'center' }}>{saveMessage}</div>
         )}

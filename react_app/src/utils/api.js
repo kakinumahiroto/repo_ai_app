@@ -1,5 +1,11 @@
 import axios from 'axios';
 
+// Cloud Functionsエミュレータ or 本番のURLを自動切り替え
+export const CONTACT_API_URL =
+  window.location.hostname === 'localhost'
+    ? 'http://localhost:5001/ai-app-96b95/us-central1/contact'
+    : 'https://us-central1-ai-app-96b95.cloudfunctions.net/contact';
+
 export const sortHistory = (historyArray) => {
   return historyArray.sort((a, b) => {
     const subjectComparison = a.subject.localeCompare(b.subject);
@@ -23,9 +29,16 @@ export const saveUserProfile = async (profile, uid, FIRESTORE_API_URL, setUserPr
           }
         },
         preferredGrade: { stringValue: profile.preferredGrade || "小学生" },
-        updatedAt: { timestampValue: new Date().toISOString() }
+        updatedAt: { timestampValue: new Date().toISOString() },
+        // MFA拡張
+        mfaEnabled: { booleanValue: !!profile.mfaEnabled },
+        mfaLastEnabled: profile.mfaLastEnabled ? { timestampValue: profile.mfaLastEnabled } : undefined
       }
     };
+    // undefinedなフィールドを除去
+    Object.keys(data.fields).forEach(key => {
+      if (data.fields[key] === undefined) delete data.fields[key];
+    });
     await axios.patch(`${FIRESTORE_API_URL}/userProfiles/${uid}`, data);
     setUserProfile && setUserProfile(profile);
     setGrade && setGrade(profile.preferredGrade);
@@ -75,7 +88,9 @@ export const fetchUserProfile = async (uid, FIRESTORE_API_URL, setUserProfile, s
         name: res.data.fields.name?.stringValue || "",
         nickname: res.data.fields.nickname?.stringValue || "",
         weakSubjects: res.data.fields.weakSubjects?.arrayValue?.values?.map(v => v.stringValue) || [],
-        preferredGrade: res.data.fields.preferredGrade?.stringValue || "小学生"
+        preferredGrade: res.data.fields.preferredGrade?.stringValue || "小学生",
+        mfaEnabled: res.data.fields.mfaEnabled?.booleanValue || false,
+        mfaLastEnabled: res.data.fields.mfaLastEnabled?.timestampValue || null
       };
       setUserProfile && setUserProfile(profile);
       setGrade && setGrade(profile.preferredGrade);

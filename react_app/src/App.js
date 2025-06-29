@@ -1,18 +1,22 @@
+
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import axios from 'axios';
 import 'katex/dist/katex.min.css';
 import './App.css';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
+import 'firebase/compat/functions';
 import AuthForm from './components/AuthForm';
 import ChatBox from './components/ChatBox';
 import HistoryList from './components/HistoryList';
 import ContactForm from './components/ContactForm';
 import ProfileView from './components/ProfileView';
 import AdminUsageManager from './components/AdminUsageManager';
-import { sortHistory, saveUserProfile as saveUserProfileApi, fetchHistory as fetchHistoryApi, fetchUserProfile as fetchUserProfileApi } from './utils/api';
+import { sortHistory, saveUserProfile as saveUserProfileApi, fetchHistory as fetchHistoryApi, fetchUserProfile as fetchUserProfileApi, CONTACT_API_URL } from './utils/api';
 import { formatMathInput, getTimeBasedGreeting } from './utils/format';
 import { fetchUserUsage, incrementUserUsage, checkUsageLimit, createUserUsage } from './utils/usage';
+import { sendMfaCode, verifyMfaCode } from './utils/mfa';
+import MfaVerification from './components/MfaVerification';
 
 // Firestoreエミュレータ/本番のURLを環境変数から取得
 const FIRESTORE_API_URL = (() => {
@@ -46,10 +50,6 @@ const RECAPTCHA_SITE_KEY = (() => {
 })();
 
 // Cloud Functionsエミュレータ or 本番のURLを自動切り替え
-export const CONTACT_API_URL =
-  window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/ai-app-96b95/us-central1/contact'
-    : 'https://us-central1-ai-app-96b95.cloudfunctions.net/contact';
 
 if (!FIRESTORE_API_URL) {
   // eslint-disable-next-line no-console
@@ -78,6 +78,10 @@ const validatePassword = (pw) => {
 const ADMIN_EMAIL = 'aiappself@gmail.com';
 
 function App() {
+  // セッション復元・認証チェック用
+  const [isAuthChecking, setIsAuthChecking] = useState(false);
+  const [sessionUser, setSessionUser] = useState(null); // 復元されたユーザー
+  
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState(""); // 未使用
   const [loading, setLoading] = useState(false);
@@ -122,17 +126,64 @@ function App() {
   const [followupImageData, setFollowupImageData] = useState(null);
   const [userUsage, setUserUsage] = useState({ currentUsage: 0, monthlyLimit: 0 }); // 残り質問回数
 
+  // MFA状態管理
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaError, setMfaError] = useState("");
+  const [mfaLoading, setMfaLoading] = useState(false);
+  const [pendingUser, setPendingUser] = useState(null);
+  const [mfaCodeSent, setMfaCodeSent] = useState(false);
+
   // ファイル入力用のref
   const fileInputRef = useRef(null);
 
   // Firebase初期化とreCAPTCHA v3設定
   useEffect(() => {
+    console.log('=== Firebase初期化開始 ===');
+    console.log('既存のFirebaseアプリ数:', firebase.apps.length);
+    
     if (!firebase.apps.length) {
-      firebase.initializeApp({
+      console.log('Firebase初期化実行中...');
+      const config = {
         apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
         authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
         projectId: 'ai-app-96b95',
+      };
+      console.log('Firebase config:', {
+        ...config,
+        apiKey: config.apiKey ? config.apiKey.substring(0, 10) + '...' : 'undefined'
       });
+      
+      try {
+        firebase.initializeApp(config);
+        console.log('Firebase初期化成功');
+        console.log('利用可能なFirebaseサービス:', Object.keys(firebase));
+        console.log('firebase.functions:', firebase.functions);
+        
+        // Functions の初期化を確認
+        if (firebase.functions) {
+          console.log('Firebase Functions初期化成功');
+          // エミュレータ設定の確認
+          if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            console.log('ローカル環境検出 - Functionsエミュレータ設定確認');
+            try {
+              firebase.functions().useEmulator('localhost', 5001);
+              console.log('Functionsエミュレータ設定完了');
+            } catch (emulatorError) {
+              console.warn('Functionsエミュレータ設定エラー:', emulatorError);
+            }
+          }
+        } else {
+          console.error('Firebase Functions が利用できません');
+        }
+      } catch (error) {
+        console.error('Firebase初期化エラー:', error);
+      }
+    } else {
+      console.log('Firebase既に初期化済み');
+      console.log('現在のFirebaseアプリ:', firebase.apps[0].name);
+      console.log('利用可能なFirebaseサービス:', Object.keys(firebase));
+      console.log('firebase.functions:', firebase.functions);
     }
     
     // reCAPTCHA v3の動的読み込みと初期化
@@ -180,7 +231,10 @@ function App() {
     setAuthError("");
     setRegisterMsg("");
     setCaptchaError("");
-    
+    setMfaError("");
+    setMfaRequired(false);
+    setPendingUser(null);
+    setMfaCodeSent(false);
     // パスワードバリデーション
     if (authMode === "register" || authMode === "login") {
       const pwErr = validatePassword(password);
@@ -188,7 +242,8 @@ function App() {
         setAuthError(pwErr);
         return;
       }
-    }    // reCAPTCHA v3トークンの取得
+    }
+    // reCAPTCHA v3トークンの取得
     let recaptchaToken = null;
     if (RECAPTCHA_SITE_KEY) {
       try {
@@ -202,12 +257,71 @@ function App() {
       }
     } else {
       console.warn('reCAPTCHA site key is not configured. Skipping reCAPTCHA verification.');
-    }    try {
+    }
+    try {
       if (authMode === "login") {
+        console.log('=== ログイン処理開始 ===');
+        console.log('Email:', email);
+        console.log('Firebase auth object:', firebase.auth());
+        
         const res = await firebase.auth().signInWithEmailAndPassword(email, password);
-        setUser(res.user);
-        // ログイン成功時に利用回数情報を取得
-        await loadUserUsage(res.user.email);      } else {
+        console.log('ログイン成功:', res.user.email);
+        
+        // ログイン時は必ず認証メール送信＆MFA画面へ遷移
+        setPendingUser(res.user);
+        setMfaRequired(true);
+        
+        console.log('=== MFA認証コード送信開始 ===');
+        console.log('ログイン後のユーザー状態:', {
+          uid: res.user.uid,
+          email: res.user.email,
+          emailVerified: res.user.emailVerified
+        });
+        
+        // Firebase Authの現在のユーザー状態を確認
+        const currentUser = firebase.auth().currentUser;
+        console.log('現在のFirebase Authユーザー:', currentUser ? currentUser.email : 'なし');
+        
+        // ユーザー状態が更新されるまで少し待機
+        if (!currentUser || currentUser.uid !== res.user.uid) {
+          console.log('ユーザー状態の更新を待機中...');
+          await new Promise(resolve => setTimeout(resolve, 1500)); // 1秒から1.5秒に延長
+          console.log('待機後の現在のユーザー:', firebase.auth().currentUser?.email);
+        }
+        
+        // 追加：認証状態の確認を再実行
+        const finalUser = firebase.auth().currentUser;
+        if (!finalUser || finalUser.uid !== res.user.uid) {
+          console.warn('認証状態が不安定です。MFA送信をスキップします。');
+          setMfaError('認証状態が不安定です。再ログインしてください。');
+          return;
+        }
+        
+        try {
+          // Firebase functions の初期化確認
+          if (!firebase.functions) {
+            throw new Error('firebase.functions が利用できません。Firebase SDK の初期化を確認してください。');
+          }
+          
+          console.log('MFA認証コード送信実行中...', {
+            userEmail: finalUser.email,
+            userUid: finalUser.uid
+          });
+          
+          // 修正: mfa.js の sendMfaCode 関数を直接呼び出し
+          const result = await sendMfaCode(res.user.email);
+          console.log('MFA認証コード送信成功 - 結果:', result);
+          
+          setMfaCodeSent(true);
+        } catch (err) {
+          console.error('=== MFA認証コード送信エラー詳細 ===');
+          console.error('Error type:', err.constructor.name);
+          console.error('Error message:', err.message);
+          console.error('Error stack:', err.stack);
+          console.error('Full error object:', err);
+          setMfaError('認証コード送信に失敗しました: ' + (err.message || ''));
+        }
+      } else {
         const res = await firebase.auth().createUserWithEmailAndPassword(email, password);
         // 新規登録時にプロファイルを保存（デフォルト学年設定）
         const profileData = {
@@ -223,7 +337,6 @@ function App() {
         } catch (profileError) {
           console.error('プロファイル保存エラー:', profileError);
         }
-        
         // 新規ユーザーのuserUsage初期化
         try {
           await createUserUsage(res.user.email, FIRESTORE_API_URL);
@@ -231,7 +344,6 @@ function App() {
         } catch (usageError) {
           console.error('userUsage初期化エラー:', usageError);
         }
-        
         setRegisterMsg("新規登録しました！ログインしてね！"); // 新規登録時にメッセージ表示
         setNickname(""); // ニックネームをクリア
         setRegisterGrade("小学生"); // 学年もリセット
@@ -240,32 +352,39 @@ function App() {
     } catch (err) {
       setAuthError(err.message);
     }
-  };  // Firebase認証の永続化設定（3日間）
+  };
+
+  // MFA認証成功時の処理
+  const handleMfaSuccess = async () => {
+    setUser(pendingUser);
+    await loadUserUsage(pendingUser.email);
+    setMfaRequired(false);
+    setPendingUser(null);
+    setMfaCode("");
+    setMfaError("");
+    setMfaCodeSent(false);
+  };
   useEffect(() => {
-    if (firebase.auth().currentUser) return;
     firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-    // セッションの有効期限を3日間に設定
-    firebase.auth().onAuthStateChanged(user => {
-      console.log('=== Firebase Auth State Changed ===');
-      console.log('User:', user ? { uid: user.uid, email: user.email, emailVerified: user.emailVerified } : 'null');
-      
+    const unsubscribe = firebase.auth().onAuthStateChanged(user => {
+      setIsAuthChecking(false);
       if (user) {
-        user.getIdTokenResult().then(idTokenResult => {
-          console.log('Token result:', {
-            token: idTokenResult.token ? 'present' : 'missing',
-            expirationTime: idTokenResult.expirationTime,
-            issuedAtTime: idTokenResult.issuedAtTime,
-            signInProvider: idTokenResult.signInProvider
-          });
-          
-          const expiresIn = 3 * 24 * 60 * 60 * 1000; // 3日
-          window.localStorage.setItem('firebaseSessionExpires', Date.now() + expiresIn);
-        }).catch(tokenError => {
-          console.error('Failed to get ID token:', tokenError);
-        });
+        setSessionUser(user); // 復元ユーザーを保持
+      } else {
+        setSessionUser(null);
+        setUser(null);
       }
     });
-  }, []);// ログアウト処理
+    return () => unsubscribe();
+  }, []);
+
+  // セッション復元ボタン
+  const handleRestoreSession = () => {
+    if (sessionUser) {
+      setUser(sessionUser);
+      // 必要に応じてMFA認証を要求する場合はここで分岐
+    }
+  };
   const handleLogout = async () => {
     await firebase.auth().signOut();
     setUser(null);
@@ -1149,7 +1268,36 @@ ${subjectGuidance}
   }, [user, loadUserUsage]);
 
   // UI
+  if (isAuthChecking) {
+    return <div style={{ textAlign: 'center', marginTop: 80 }}>認証状態を確認中...</div>;
+  }
   if (!user) {
+    // MFA認証画面
+    if (mfaRequired && pendingUser) {
+      return (
+        <div className="App">
+          <header className="App-header">
+            <MfaVerification
+              email={pendingUser.email}
+              onSuccess={handleMfaSuccess}
+              onCancel={() => {
+                setMfaRequired(false);
+                setPendingUser(null);
+                setMfaCodeSent(false);
+                setMfaError("");
+              }}
+              mfaError={mfaError}
+              setMfaError={setMfaError}
+              mfaLoading={mfaLoading}
+              setMfaLoading={setMfaLoading}
+              mfaCodeSent={mfaCodeSent}
+              setMfaCodeSent={setMfaCodeSent}
+            />
+          </header>
+        </div>
+      );
+    }
+    // 通常ログイン画面＋セッション復元ボタン
     return (
       <div className="App">
         <header className="App-header">
@@ -1181,10 +1329,20 @@ ${subjectGuidance}
             handleAuth={handleAuth}
             authError={authError}
           />
+          {/* セッション復元ボタン */}
+          {sessionUser && (
+            <div style={{ marginTop: 24, textAlign: 'center' }}>
+              <button onClick={handleRestoreSession} style={{ background: '#e0e7ff', color: '#222', fontWeight: 'bold', borderRadius: 6, border: 'none', padding: '8px 18px', fontSize: 15, cursor: 'pointer' }}>
+                前回のセッションで続ける（{sessionUser.email}）
+              </button>
+            </div>
+          )}
         </header>
       </div>
     );
-  }  return (
+  }
+
+  return (
     <div className="App">
       <header className="App-header">
         {/* 上部のメニューバー */}
@@ -1528,6 +1686,7 @@ ${subjectGuidance}
             onUserUsageUpdate={handleUserUsageUpdate}
           />
         )}
+
       </header>
     </div>
   );

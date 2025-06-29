@@ -77,10 +77,22 @@ const validatePassword = (pw) => {
 // 管理者ユーザーのメールアドレス
 const ADMIN_EMAIL = 'aiappself@gmail.com';
 
+// セッションタイムアウトの設定（ミリ秒）- 1時間
+const SESSION_TIMEOUT = 60 * 60 * 1000;
+
+// セッション最大有効期限（24時間）- 共有デバイス対策
+const MAX_SESSION_LIFETIME = 24 * 60 * 60 * 1000;
+
+// 共有デバイス検出のしきい値（30分以内のセッションは警告表示）
+const SHARED_DEVICE_WARNING_THRESHOLD = 30 * 60 * 1000;
+
 function App() {
   // セッション復元・認証チェック用
   const [isAuthChecking, setIsAuthChecking] = useState(false);
   const [sessionUser, setSessionUser] = useState(null); // 復元されたユーザー
+  const [lastActivityTime, setLastActivityTime] = useState(Date.now()); // 最後のアクティビティ時刻
+  const [sessionCreatedTime, setSessionCreatedTime] = useState(null); // セッション作成時刻
+  const [showSessionWarning, setShowSessionWarning] = useState(false); // セッション警告表示フラグ
   
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState(""); // 未使用
@@ -133,6 +145,13 @@ function App() {
   const [mfaLoading, setMfaLoading] = useState(false);
   const [pendingUser, setPendingUser] = useState(null);
   const [mfaCodeSent, setMfaCodeSent] = useState(false);
+
+  // 機密操作用の追加認証状態
+  const [sensitiveOperationPending, setSensitiveOperationPending] = useState(null);
+  const [lastSensitiveAuthTime, setLastSensitiveAuthTime] = useState(0);
+  
+  // 機密操作の再認証間隔（5分）
+  const SENSITIVE_OPERATION_TIMEOUT = 5 * 60 * 1000;
 
   // ファイル入力用のref
   const fileInputRef = useRef(null);
@@ -355,37 +374,189 @@ function App() {
   };
 
   // MFA認証成功時の処理
-  const handleMfaSuccess = async () => {
-    setUser(pendingUser);
-    await loadUserUsage(pendingUser.email);
-    setMfaRequired(false);
-    setPendingUser(null);
-    setMfaCode("");
-    setMfaError("");
-    setMfaCodeSent(false);
+  const handleMfaSuccess = async (rememberSession = false) => {
+    if (sensitiveOperationPending) {
+      // 機密操作のための再認証の場合
+      setLastSensitiveAuthTime(Date.now());
+      const operation = sensitiveOperationPending;
+      setSensitiveOperationPending(null);
+      setMfaRequired(false);
+      setPendingUser(null);
+      setMfaCode("");
+      setMfaError("");
+      setMfaCodeSent(false);
+      
+      // 保留中の機密操作を実行
+      if (operation === 'admin') {
+        setCurrentView('admin');
+      } else if (operation === 'profile_save') {
+        // プロファイル保存処理をここで実行
+        // 必要に応じて実装
+      }
+    } else {
+      // 通常のログイン/セッション復元の場合
+      setUser(pendingUser);
+      await loadUserUsage(pendingUser.email);
+      
+      // セッション持続期間の設定
+      if (!rememberSession) {
+        // 短期セッション（1時間で自動ログアウト）
+        firebase.auth().setPersistence(firebase.auth.Auth.Persistence.SESSION);
+      } else {
+        // 長期セッション（ブラウザ閉じるまで持続）
+        firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+      }
+      
+      setMfaRequired(false);
+      setPendingUser(null);
+      setMfaCode("");
+      setMfaError("");
+      setMfaCodeSent(false);
+      setShowSessionWarning(false);
+    }
+  };
+
+  // 機密操作の実行前チェック
+  const requireSensitiveAuth = async (operation) => {
+    if (!user) return false;
+    
+    const timeSinceLastAuth = Date.now() - lastSensitiveAuthTime;
+    if (timeSinceLastAuth < SENSITIVE_OPERATION_TIMEOUT) {
+      // 最近認証済みの場合は直接実行
+      return true;
+    }
+
+    // 再認証が必要
+    console.log(`機密操作 ${operation} のため再認証を要求`);
+    setSensitiveOperationPending(operation);
+    setPendingUser(user);
+    setMfaRequired(true);
+    
+    try {
+      const result = await sendMfaCode(user.email);
+      console.log('機密操作用MFA認証コード送信成功:', result);
+      setMfaCodeSent(true);
+      return false; // 認証待ち
+    } catch (err) {
+      console.error('機密操作用MFA認証コード送信エラー:', err);
+      setMfaError('認証コード送信に失敗しました: ' + (err.message || ''));
+      return false;
+    }
   };
   useEffect(() => {
     firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
     const unsubscribe = firebase.auth().onAuthStateChanged(user => {
       setIsAuthChecking(false);
       if (user) {
+        // セッション作成時刻をチェック（新規または古いセッション検出）
+        const storedSessionTime = localStorage.getItem(`sessionTime_${user.uid}`);
+        const currentTime = Date.now();
+        
+        if (!storedSessionTime) {
+          // 新規セッション
+          setSessionCreatedTime(currentTime);
+          localStorage.setItem(`sessionTime_${user.uid}`, currentTime.toString());
+          setShowSessionWarning(false);
+        } else {
+          const sessionAge = currentTime - parseInt(storedSessionTime);
+          setSessionCreatedTime(parseInt(storedSessionTime));
+          
+          // セッション有効期限チェック
+          if (sessionAge > MAX_SESSION_LIFETIME) {
+            console.log('セッションが期限切れです。自動ログアウトします。');
+            firebase.auth().signOut();
+            localStorage.removeItem(`sessionTime_${user.uid}`);
+            return;
+          }
+          
+          // 共有デバイス警告（最近のセッション）
+          if (sessionAge < SHARED_DEVICE_WARNING_THRESHOLD) {
+            setShowSessionWarning(true);
+          }
+        }
+        
         setSessionUser(user); // 復元ユーザーを保持
+        setLastActivityTime(Date.now()); // アクティビティタイムを更新
       } else {
         setSessionUser(null);
         setUser(null);
+        setSessionCreatedTime(null);
+        setShowSessionWarning(false);
+        // ログアウト時はすべてのセッション時刻をクリア
+        Object.keys(localStorage).forEach(key => {
+          if (key.startsWith('sessionTime_')) {
+            localStorage.removeItem(key);
+          }
+        });
       }
     });
     return () => unsubscribe();
   }, []);
 
-  // セッション復元ボタン
-  const handleRestoreSession = () => {
+  // セッションタイムアウトチェック（アクティビティ監視）
+  useEffect(() => {
+    const checkSessionTimeout = () => {
+      if (sessionUser && (Date.now() - lastActivityTime) > SESSION_TIMEOUT) {
+        console.log('セッションタイムアウトのため自動ログアウト');
+        handleLogout();
+      }
+    };
+
+    // 1分ごとにセッションタイムアウトをチェック
+    const interval = setInterval(checkSessionTimeout, 60000);
+    
+    // ユーザーアクティビティ監視（マウス移動、クリック、キーボード入力）
+    const updateActivity = () => {
+      if (sessionUser || user) {
+        setLastActivityTime(Date.now());
+      }
+    };
+
+    document.addEventListener('mousemove', updateActivity);
+    document.addEventListener('keypress', updateActivity);
+    document.addEventListener('click', updateActivity);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('mousemove', updateActivity);
+      document.removeEventListener('keypress', updateActivity);
+      document.removeEventListener('click', updateActivity);
+    };
+  }, [sessionUser, user, lastActivityTime]);
+
+  // セッション復元ボタン（セキュリティ強化版）
+  const handleRestoreSession = async () => {
     if (sessionUser) {
-      setUser(sessionUser);
-      // 必要に応じてMFA認証を要求する場合はここで分岐
+      // セッションタイムアウトチェック
+      if ((Date.now() - lastActivityTime) > SESSION_TIMEOUT) {
+        console.log('セッションがタイムアウトしました');
+        setMfaError('セッションがタイムアウトしました。再度ログインしてください。');
+        await handleLogout();
+        return;
+      }
+
+      // セキュリティ強化：セッション復元時もMFA認証を要求
+      console.log('=== セッション復元時のMFA認証開始 ===');
+      setPendingUser(sessionUser);
+      setMfaRequired(true);
+      
+      try {
+        console.log('セッション復元時のMFA認証コード送信中...', sessionUser.email);
+        const result = await sendMfaCode(sessionUser.email);
+        console.log('セッション復元時のMFA認証コード送信成功:', result);
+        setMfaCodeSent(true);
+      } catch (err) {
+        console.error('セッション復元時のMFA認証コード送信エラー:', err);
+        setMfaError('認証コード送信に失敗しました: ' + (err.message || ''));
+      }
     }
   };
   const handleLogout = async () => {
+    // ログアウト前にセッション時刻をクリア
+    if (user) {
+      localStorage.removeItem(`sessionTime_${user.uid}`);
+    }
+    
     await firebase.auth().signOut();
     setUser(null);
     setUserUsage({ currentUsage: 0, monthlyLimit: 0 });
@@ -403,6 +574,18 @@ function App() {
     // 履歴をクリア（ユーザー切り替え時の履歴混在を防止）
     setHistory([]);
     setUserProfile({ name: "", nickname: "", weakSubjects: [], preferredGrade: "小学生" });
+    
+    // セキュリティ強化：機密操作関連の状態もクリア
+    setSensitiveOperationPending(null);
+    setLastSensitiveAuthTime(0);
+    setMfaRequired(false);
+    setPendingUser(null);
+    setMfaCodeSent(false);
+    setMfaError("");
+    
+    // セッション関連の状態もクリア
+    setSessionCreatedTime(null);
+    setShowSessionWarning(false);
   };
 
   // --- Firestoreから履歴を取得（ユーザIDでフィルタリング） ---
@@ -1285,6 +1468,7 @@ ${subjectGuidance}
                 setPendingUser(null);
                 setMfaCodeSent(false);
                 setMfaError("");
+                setSensitiveOperationPending(null);
               }}
               mfaError={mfaError}
               setMfaError={setMfaError}
@@ -1292,6 +1476,12 @@ ${subjectGuidance}
               setMfaLoading={setMfaLoading}
               mfaCodeSent={mfaCodeSent}
               setMfaCodeSent={setMfaCodeSent}
+              isSensitiveOperation={!!sensitiveOperationPending}
+              operationType={sensitiveOperationPending}
+              sessionInfo={sessionCreatedTime ? {
+                created: new Date(sessionCreatedTime).toLocaleString('ja-JP'),
+                isRecent: showSessionWarning
+              } : null}
             />
           </header>
         </div>
@@ -1329,12 +1519,79 @@ ${subjectGuidance}
             handleAuth={handleAuth}
             authError={authError}
           />
-          {/* セッション復元ボタン */}
+          {/* セッション復元ボタン（セキュリティ強化版） */}
           {sessionUser && (
             <div style={{ marginTop: 24, textAlign: 'center' }}>
-              <button onClick={handleRestoreSession} style={{ background: '#e0e7ff', color: '#222', fontWeight: 'bold', borderRadius: 6, border: 'none', padding: '8px 18px', fontSize: 15, cursor: 'pointer' }}>
-                前回のセッションで続ける（{sessionUser.email}）
-              </button>
+              {/* 共有デバイス警告 */}
+              {showSessionWarning && (
+                <div style={{ 
+                  background: '#fef3cd', 
+                  border: '1px solid #faebcc', 
+                  borderRadius: 6, 
+                  padding: '12px', 
+                  marginBottom: 16,
+                  fontSize: 14,
+                  color: '#856404'
+                }}>
+                  <div style={{ fontWeight: 'bold', marginBottom: 4 }}>⚠️ セキュリティ警告</div>
+                  <div style={{ fontSize: 12 }}>
+                    最近のセッションが検出されました。<br/>
+                    共有デバイスをご利用の場合は、必ずご自分のアカウントかご確認ください。
+                  </div>
+                </div>
+              )}
+              
+              <p style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
+                前回のセッションが残っています
+              </p>
+              
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
+                <button 
+                  onClick={handleRestoreSession} 
+                  style={{ 
+                    background: '#e0e7ff', 
+                    color: '#222', 
+                    fontWeight: 'bold', 
+                    borderRadius: 6, 
+                    border: 'none', 
+                    padding: '8px 18px', 
+                    fontSize: 15, 
+                    cursor: 'pointer' 
+                  }}
+                >
+                  続きから始める（認証必須）
+                </button>
+                
+                <button 
+                  onClick={async () => {
+                    // セッションを強制クリア
+                    await handleLogout();
+                    setAuthMode('login');
+                  }}
+                  style={{ 
+                    background: '#fee', 
+                    color: '#d63384', 
+                    fontWeight: 'bold', 
+                    borderRadius: 6, 
+                    border: '1px solid #f5c6cb', 
+                    padding: '8px 18px', 
+                    fontSize: 15, 
+                    cursor: 'pointer' 
+                  }}
+                >
+                  新規ログイン
+                </button>
+              </div>
+              
+              <p style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+                ※セキュリティのため認証コードをお送りします
+              </p>
+              
+              {sessionCreatedTime && (
+                <p style={{ fontSize: 11, color: '#aaa', marginTop: 8 }}>
+                  セッション開始: {new Date(sessionCreatedTime).toLocaleString('ja-JP')}
+                </p>
+              )}
             </div>
           )}
         </header>
@@ -1436,7 +1693,13 @@ ${subjectGuidance}
                 {/* 管理者メニュー */}
                 {isAdmin && (
                   <button 
-                    onClick={() => { setCurrentView('admin'); setDropdownOpen(false); }}
+                    onClick={async () => { 
+                      setDropdownOpen(false);
+                      const authorized = await requireSensitiveAuth('admin');
+                      if (authorized) {
+                        setCurrentView('admin');
+                      }
+                    }}
                     style={{
                       display: 'block',
                       width: '100%',

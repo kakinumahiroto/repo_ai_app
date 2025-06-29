@@ -1599,6 +1599,39 @@ ${subjectGuidance}
     );
   }
 
+  // ログイン済みユーザーに対するMFA認証画面
+  if (mfaRequired && pendingUser && user) {
+    return (
+      <div className="App">
+        <header className="App-header">
+          <MfaVerification
+            email={pendingUser.email}
+            onSuccess={handleMfaSuccess}
+            onCancel={() => {
+              setMfaRequired(false);
+              setPendingUser(null);
+              setMfaCodeSent(false);
+              setMfaError("");
+              setSensitiveOperationPending(null);
+            }}
+            mfaError={mfaError}
+            setMfaError={setMfaError}
+            mfaLoading={mfaLoading}
+            setMfaLoading={setMfaLoading}
+            mfaCodeSent={mfaCodeSent}
+            setMfaCodeSent={setMfaCodeSent}
+            isSensitiveOperation={!!sensitiveOperationPending}
+            operationType={sensitiveOperationPending}
+            sessionInfo={sessionCreatedTime ? {
+              created: new Date(sessionCreatedTime).toLocaleString('ja-JP'),
+              isRecent: showSessionWarning
+            } : null}
+          />
+        </header>
+      </div>
+    );
+  }
+
   return (
     <div className="App">
       <header className="App-header">
